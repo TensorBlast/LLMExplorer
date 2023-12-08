@@ -3,16 +3,18 @@ from streamlit_option_menu import option_menu
 import replicate
 from openai import OpenAI
 from langchain.llms import ollama
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 import os
+from uuid import uuid4 as v4
 
 setter = defaultdict(None)
 setter['DEFAULT_SYSTEM_PROMPT'] = f"""You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being concise. Please ensure that your responses are socially unbiased and positive in nature. Please also make the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."""
 setter['MAX_TOKENS'] = 4096
 
+
 os.environ['REPLICATE_API_TOKEN'] = st.secrets['replicate']['API_KEY']
-OpenAI.api_key = st.secrets.openai.API_KEY
-openaiclient = OpenAI()
+os.environ['OPENAI_API_KEY'] = st.secrets.openai.API_KEY
+
 
 st.title('LLM Explorer')
 
@@ -29,75 +31,119 @@ action_page = option_menu(None, ["Chat", "Prompt Engineer", "Settings"],
     menu_icon="cast", default_index=0, orientation="horizontal")
 
 def prepare_prompt(messagelist: list[dict], system_prompt: str = None):
-    prompt = "\n".join([f"[INST] {message['content']} [/INST]" if message['role']=='User' else message['content'] for message in messagelist])
+    prompt = "\n".join([f"[INST] {message['content']} [/INST]" if message['role']=='user' else message['content'] for message in messagelist])
     if system_prompt:
-        prompt = f"[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n[\INST] {prompt}"
+        prompt = f"[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n[\INST]ß {prompt}"
     return prompt
 
-def run(messagehistory: dict[dict], provider: str = 'Replicate', llm: str = None):
-    messages = list(messagehistory.values())
+def run(provider: str, llm: str, conversation_id):
+    messages = list(st.session_state.conversations[conversation_id])
     if provider == 'Replicate':
         prompt = prepare_prompt(messages, system_prompt=setter['DEFAULT_SYSTEM_PROMPT'])
-        resp = replicate.run(llm, {"prompt": prompt, "max_new_tokens": setter['max_new_tokens'], "temperature": setter['temperature'], "top_k": setter['top_k'], "top_p": setter['top_p']})
+        resp = replicate.run(llm, {"prompt": prompt, "max_new_tokens": st.session_state.max_new_tokens, "temperature": st.session_state.temperature, "top_k": st.session_state.top_k, "top_p": st.session_state.top_p})
         return resp
     elif provider == 'OpenAI':
-        resp = openaiclient.chat.completions.create(model=llm, messages= messagehistory.values(), max_tokens=setter['max_new_tokens'], temperature=setter['temperature'], top_k=setter['top_k'], top_p=setter['top_p'])
-        return resp
+        client = OpenAI()
+        resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
+        return resp.choices[0].message.content
 
 def list_openai_models():
-    models = list(openai.models.list())
+    client = OpenAI()
+    models = list(client.models.list())
     res = [model.id for model in models if 'gpt' in model.id.lower()]
     return res
 
-def clear_all(*conv_hist, **kwargs):
-    del conv_hist
+def clear_all():
     for key in list(st.session_state.keys()):
         del st.session_state[key]
 
-def enter_conversation(history, conv_dict):
-    history[len(history)] = conv_dict
 
-def chat():
-    conversation_history = OrderedDict()
-    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama'], on_change=clear_all, args=conversation_history)
+def create_new_conversation():
+    conversation_id = v4()
+    if "conversations" not in st.session_state:
+        st.session_state['conversations'] = {}
+    st.session_state.conversations[conversation_id] = []
+    st.session_state['current_conversation'] = conversation_id
+    return conversation_id
+
+def select_convo(key):
+    st.session_state['current_conversation'] = key
+
+def delconv(key):
+    del st.session_state.conversations[key]
+    if len(st.session_state.conversations) > 0:
+        st.session_state['current_conversation'] = list(st.session_state.conversations.keys())[0]
+    else:
+        del st.session_state['current_conversation']
+    
+    
+def generate_buttons():
+    for key,convo in st.session_state.conversations.items():
+        try:
+            st.sidebar.button(f"{convo[0]['content'][:50]}...", key=key, on_click=select_convo, args=(key,), use_container_width=True)
+        except IndexError:
+            st.sidebar.button(f"New Conversation...", key=key, on_click=select_convo, args=(key,), use_container_width=True)
+def draw_sidebar():
+    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama'])
     if provider == 'Replicate':
-        model = st.sidebar.selectbox('Model', model_choices['replicate'], on_change=clear_all, args=conversation_history)
+        model = st.sidebar.selectbox('Model', model_choices['replicate'])
         llm = replicatemap[model]
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'OpenAI':
         modellist = list_openai_models()
-        model = st.sidebar.selectbox('Model', modellist, on_change=clear_all, args=conversation_history)
+        model = st.sidebar.selectbox('Model', modellist)
         llm = model
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
 
-    setter['temperature'] = st.sidebar.slider('temperature', min_value=0.01, max_value=5.0, value=0.75, step=0.01)
-    setter['top_k'] = st.sidebar.number_input('top_k', min_value=1, max_value=10000, value=50, step=50)
-    setter['top_p'] = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
-    setter['max_new_tokens'] = st.sidebar.slider('max_new_tokens', min_value=32, max_value=4096, value=2048, step=8)
+    st.session_state.temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=5.0, value=0.75, step=0.01)
+    st.session_state.top_k = st.sidebar.number_input('top_k', min_value=1, max_value=10000, value=50, step=50)
+    st.session_state.top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
+    st.session_state.max_new_tokens = st.sidebar.slider('max_new_tokens', min_value=32, max_value=4096, value=2048, step=8)
+    st.session_state.provider = provider   
+    st.session_state.llm = llm
+    st.sidebar.button("Begin New Conversation", on_click=create_new_conversation)
 
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+def chat():
+    placeholder1 = st.empty()
+    placeholder2 = st.empty()
 
-    for message in st.session_state.messages:
+    with placeholder1.container():
+        draw_sidebar()
+    
+
+    if "conversations" not in st.session_state or len(st.session_state.conversations) == 0:
+        current_convo = create_new_conversation()
+    elif "current_conversation" in st.session_state and st.session_state.current_conversation:
+        current_convo = st.session_state['current_conversation']
+    else:
+        current_convo = list(st.session_state.conversations.keys())[0]
+        st.session_state['current_conversation'] = current_convo
+
+    for message in st.session_state.conversations[current_convo]:
         with st.chat_message(message['role']):
             st.markdown(message['content'])
 
     if prompt := st.chat_input(">> "):
-        st.session_state.messages.append({'role': 'User', 'content': prompt})
-        enter_conversation(conversation_history, {'role': 'User', 'content': prompt})
+        st.session_state.conversations[current_convo].append({'role': 'user', 'content': prompt})
         with st.chat_message("User"):
             st.markdown(prompt)
         with st.chat_message("Assistant"):
             message_placeholder = st.empty()
             full_response = ""
-            print(conversation_history.values())
-            for output in run(conversation_history, provider, llm):
+            for output in run(st.session_state.provider, st.session_state.llm, current_convo):
                 full_response += output
                 message_placeholder.markdown(full_response+"▌")
             message_placeholder.markdown(full_response)
 
-        st.session_state.messages.append({'role': 'Assistant', 'content': full_response})
-        enter_conversation(conversation_history, {'role': 'Assistant', 'content': full_response})
+        st.session_state.conversations[current_convo].append({'role': 'assistant', 'content': full_response})
+
+    with placeholder2.container():
+        st.sidebar.markdown("#### Conversations")
+        generate_buttons()
+        st.sidebar.button("Delete Conversation", on_click=delconv, args=(current_convo,), use_container_width=True)
+    if st.session_state['current_conversation'] != current_convo:
+        current_convo = st.session_state['current_conversation']
+
 
 def prompting():
     pass
