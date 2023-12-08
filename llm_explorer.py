@@ -101,7 +101,6 @@ def draw_sidebar():
     st.session_state.max_new_tokens = st.sidebar.slider('max_new_tokens', min_value=32, max_value=4096, value=2048, step=8)
     st.session_state.provider = provider   
     st.session_state.llm = llm
-    st.sidebar.button("Begin New Conversation", on_click=create_new_conversation)
 
 def chat():
     placeholder1 = st.empty()
@@ -109,6 +108,8 @@ def chat():
 
     with placeholder1.container():
         draw_sidebar()
+        st.sidebar.button("Begin New Conversation", on_click=create_new_conversation)
+
     
 
     if "conversations" not in st.session_state or len(st.session_state.conversations) == 0:
@@ -144,9 +145,58 @@ def chat():
     if st.session_state['current_conversation'] != current_convo:
         current_convo = st.session_state['current_conversation']
 
+def key_buttons():
+    if 'placeholders' not in st.session_state:
+        st.session_state.placeholders = defaultdict(dict)
+    for id, value in st.session_state.placeholders.items():
+        print(st.session_state.placeholders)
+        st.session_state.placeholders[id]['name'] = st.sidebar.text_input(f"Key: ", value=value['name'], key=id)
+    st.sidebar.button("Add Key", on_click=addkey, use_container_width=True)
+
+
+def addkey():
+    id = v4()
+    if 'placeholders' not in st.session_state:
+        st.session_state.placeholders = defaultdict(dict)
+    st.session_state.placeholders[id] = {'name': '', 'value': ''}
+    st.session_state.current_key = list(st.session_state.placeholders.keys())[-1]
+
+def delkey(key):
+    del st.session_state.placeholders[key]
+    if len(st.session_state.placeholders) > 0:
+        st.session_state.current_key = list(st.session_state.placeholders.keys())[0]
+    else:
+        del st.session_state['current_key']
 
 def prompting():
-    pass
+    placeholder1 = st.empty()
+    placeholder2 = st.empty()
+
+    with placeholder1.container():
+        draw_sidebar()
+    
+    with st.container():
+        st.markdown('#### Prompt Engineer')
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.session_state.sys_prompt = "Enter a prompt here"
+            st.session_state.sys_prompt = st.text_area('System Prompt', value=st.session_state.sys_prompt, height=200)
+            if 'placeholders' not in st.session_state:
+                addkey()
+            else:
+                for id, val in st.session_state.placeholders.items():
+                    st.session_state.placeholders[id]['value'] = st.text_input(f"{val['name']}", value=val['value'], key=id)
+
+        with col2:
+            st.markdown('#### Generation')
+            msg = st.empty()
+            msg.markdown("")
+
+    with placeholder2:
+        st.sidebar.markdown("#### Add Keys")
+        key_buttons()
+        st.sidebar.button("Delete Keys", on_click=delkey, args=(st.session_state.current_key,), use_container_width=True)
 
 def settings():
     prompt= st.text_area('Default System Prompt:', value=setter['DEFAULT_SYSTEM_PROMPT'], height=200)
