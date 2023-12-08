@@ -145,16 +145,8 @@ def chat():
     if st.session_state['current_conversation'] != current_convo:
         current_convo = st.session_state['current_conversation']
 
-def key_buttons():
-    if 'placeholders' not in st.session_state:
-        st.session_state.placeholders = defaultdict(dict)
-    for id, value in st.session_state.placeholders.items():
-        print(st.session_state.placeholders)
-        st.session_state.placeholders[id]['name'] = st.sidebar.text_input(f"Key: ", value=value['name'], key=id)
-    st.sidebar.button("Add Key", on_click=addkey, use_container_width=True)
 
-
-def addkey():
+def createnewkey():
     id = v4()
     if 'placeholders' not in st.session_state:
         st.session_state.placeholders = defaultdict(dict)
@@ -184,20 +176,17 @@ def prompting():
         with col1:
             st.session_state.sys_prompt = "Enter a prompt here"
             st.session_state.sys_prompt = st.text_area('System Prompt', value=st.session_state.sys_prompt, height=200)
-            if 'placeholders' not in st.session_state:
-                addkey()
-            else:
-                for id, val in st.session_state.placeholders.items():
-                    st.session_state.placeholders[id]['value'] = st.text_input(f"{val['name']}", value=val['value'], key=id)
+            createnewkey()         
+            for id, val in st.session_state.placeholders.items():
+                st.session_state.placeholders[id]['value'] = st.text_input(f"{val['name']}", value=val['value'], key=id)
 
         with col2:
-            st.markdown('#### Generation')
+            st.markdown('##### Generation')
             msg = st.empty()
             msg.markdown("")
 
     with placeholder2.container():
         st.sidebar.markdown("#### Add Keys")
-        key_buttons()
         st.sidebar.button("Delete Keys", on_click=delkey, args=(st.session_state.current_key,), use_container_width=True)
 
 
