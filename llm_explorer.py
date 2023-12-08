@@ -177,31 +177,25 @@ def gen_prompt():
         prompt = prompt.replace(f"{{{val['name']}}}", val['value'])
     return prompt
 
-def generate(t):
+def generate():
     prompt = gen_prompt()
     full_response = ""
     if st.session_state.provider == 'Replicate':
         for resp in replicate.run(st.session_state.llm, {"prompt": prompt, "max_new_tokens": st.session_state.max_new_tokens, "temperature": st.session_state.temperature, "top_k": st.session_state.top_k, "top_p": st.session_state.top_p}):
             full_response += resp
             st.session_state.generation = full_response+"▌"
-        st.session_state.generation = full_response
+        return full_response
     elif st.session_state.provider == 'OpenAI':
         client = OpenAI()
         prompt = [{"role": "user", "content": prompt}]
         resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
-        st.session_state.generation = resp.choices[0].message.content
-    print(st.session_state.generation)
-
-def dynamic(t):
-    t.empty()
-    return generate(t)
-
+        return resp.choices[0].message.content
+    
 def prompting():
     placeholder1 = st.empty()
     placeholder2 = st.empty()
     st.session_state.entered_keys = []
     st.session_state.keynum = 0
-    st.session_state.generation = ""
 
     with placeholder1.container():
         draw_sidebar()
@@ -212,23 +206,23 @@ def prompting():
         st.sidebar.button("Delete Keys", on_click=delkey, args=(st.session_state.current_key if 'current_key' in st.session_state else None,), use_container_width=True)
 
     
-    with st.container():
-        st.markdown('#### Prompt Engineer')
+    
+    st.markdown('#### Prompt Engineer')
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.session_state.sys_prompt = "Enter a prompt here, using {Key 0} as placeholders"
-            st.session_state.sys_prompt = st.text_area('System Prompt', value=st.session_state.sys_prompt, height=200)         
-            for i, (id, val) in enumerate(st.session_state.placeholders.items()):
-                st.session_state.placeholders[id]['value'] = st.text_area(f"{val['name'] if len(val['name'])>0 else f'Key {i}'}", value=val['value'], key=str(id)+'value')
+    col1, col2 = st.columns(2)
+    with col1:
+        st.session_state.sys_prompt = "Enter a prompt here, using {Key 0} as placeholders"
+        st.session_state.sys_prompt = st.text_area('System Prompt', value=st.session_state.sys_prompt, height=200)         
+        for i, (id, val) in enumerate(st.session_state.placeholders.items()):
+            st.session_state.placeholders[id]['value'] = st.text_area(f"{val['name'] if len(val['name'])>0 else f'Key {i}'}", value=val['value'], key=str(id)+'value')
 
-        with col2:
-            st.markdown('##### Generation')
-            textarea = st.empty()
-            textarea.markdown(st.session_state.generation)
+    with col2:
+        st.markdown("###### Model Output")
+        textarea = st.empty()
             
 
-        st.button("Generate", on_click=generate, args=(textarea,))
+    if st.button("Generate", use_container_width=True):
+        textarea.markdown(generate())
 
     
 def settings():
