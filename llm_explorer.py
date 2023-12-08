@@ -159,7 +159,7 @@ def addkey():
     if 'placeholders' not in st.session_state:
         st.session_state.placeholders = defaultdict(dict)
     st.session_state.placeholders[id] = {'name': '', 'value': ''}
-    st.session_state.current_key = list(st.session_state.placeholders.keys())[-1]
+    st.session_state.current_key = id
 
 def delkey(key):
     del st.session_state.placeholders[key]
@@ -174,6 +174,8 @@ def prompting():
 
     with placeholder1.container():
         draw_sidebar()
+
+   
     
     with st.container():
         st.markdown('#### Prompt Engineer')
@@ -193,11 +195,13 @@ def prompting():
             msg = st.empty()
             msg.markdown("")
 
-    with placeholder2:
+    with placeholder2.container():
         st.sidebar.markdown("#### Add Keys")
         key_buttons()
         st.sidebar.button("Delete Keys", on_click=delkey, args=(st.session_state.current_key,), use_container_width=True)
 
+
+    
 def settings():
     prompt= st.text_area('Default System Prompt:', value=setter['DEFAULT_SYSTEM_PROMPT'], height=200)
     max_tokens= st.number_input('Max Tokens: ', value=setter['MAX_TOKENS'])
