@@ -115,8 +115,11 @@ def set_default_prompt_template(type: str = 'llama'):
     st.session_state.final_prompt = promptmapper[type]['final_prompt']
     build_prompt_template()
 
-def apply_prompt_template(messagelist: list[dict], system_prompt: str = None, bos_token: str = "", eos_token: str = ""):
+def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
     print("Preparing custom prompt from messages!")
+    bos_token = st.session_state.prompt_template['bos_token']
+    eos_token = st.session_state.prompt_template['eos_token']
+
     prompt = bos_token + st.session_state.prompt_template['initial_prompt_value'] + "\n"
     bos_open = True
 
@@ -131,7 +134,7 @@ def apply_prompt_template(messagelist: list[dict], system_prompt: str = None, bo
 
         if role == 'assistant':
             prompt += eos_token
-            bos_token = False
+            bos_open = False
         
     prompt += st.session_state.prompt_template['final_prompt_value']
     return prompt
@@ -384,7 +387,9 @@ def build_prompt_template():
                 "post_message": st.session_state.assistant_suffix
             }
         },
-        "final_prompt_value": st.session_state.final_prompt
+        "final_prompt_value": st.session_state.final_prompt,
+        "bos_token": st.session_state.bos_token,
+        "eos_token": st.session_state.eos_token
     }
     return st.session_state.prompt_template
 
