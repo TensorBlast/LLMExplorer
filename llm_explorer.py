@@ -270,8 +270,9 @@ def draw_sidebar():
             if len(st.session_state.openaikey) > 0:
                 os.environ['OPENAI_API_KEY'] = st.session_state.openaikey
                 st.sidebar.success('API key entered!', icon='✅')
-        modellist = list_openai_models()
-        model = st.sidebar.selectbox('Model', modellist)
+        if 'openai_models' not in st.session_state:
+            st.session_state.openai_models = list_openai_models()
+        model = st.sidebar.selectbox('Model', st.session_state.openai_models)
         llm = model
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'Ollama':
@@ -291,8 +292,9 @@ def draw_sidebar():
             if len(st.session_state.openrouterkey) > 0:
                 os.environ['OPENROUTER_API_KEY'] = st.session_state.openrouterkey
                 st.sidebar.success('API key entered!', icon='✅')
-        modellist = list_openrouter_models()
-        model = st.sidebar.selectbox('Model', modellist)
+        if 'openrouter_models' not in st.session_state:
+            st.session_state.openrouter_models = list_openrouter_models()
+        model = st.sidebar.selectbox('Model', st.session_state.openrouter_models)
         llm = model
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'Custom':
