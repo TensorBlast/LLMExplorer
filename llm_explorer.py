@@ -13,13 +13,12 @@ import requests
 from litellm import completion
 import json
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
 
 class Provider(BaseModel):
-    provider: Optional[str] = Field(None, description="The provider to use for generation")
-    model: Optional[str] = Field(None , description="The LLM to use for generation")
+    provider: str | None = Field(None, description="The provider to use for generation")
+    model: str | None = Field(None , description="The LLM to use for generation")
 class EndpointSchema(BaseModel):
-    prompt: Optional[str] = Field(default=None, description="The prompt to be used for generation", )
+    prompt: str | None = Field(..., description="The prompt to be used for generation", )
     max_tokens: int = Field(256, description="The maximum number of tokens to generate")
     temperature: float = Field(0.75, description="The temperature to use for generation")
     top_p: float = Field(0.9, description="The top_p to use for generation")
@@ -144,7 +143,7 @@ def run(conversation_id):
         litellm.drop_params = True
         resp = completion(model='ollama/'+llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
-    elif provider == 'Huggingface':
+    elif provider == 'Custom':
         if 'llama' in llm.lower():
             litellm.register_prompt_template(llm, st.session_state.prompt_template['roles'])
         litellm.drop_params = True
@@ -229,7 +228,7 @@ def draw_sidebar():
     st.session_state.max_new_tokens = st.sidebar.slider('max_new_tokens', min_value=32, max_value=4096, value=2048, step=8)
     st.session_state.provider = provider   
     st.session_state.llm = llm
-    st.session_state.endpoint_schema = EndpointSchema(max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p, top_k=st.session_state.top_k, presence_penalty=st.session_state.presence_penalty, frequency_penalty=st.session_state.frequency_penalty)
+    st.session_state.endpoint_schema = EndpointSchema(prompt=None, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p, top_k=st.session_state.top_k, presence_penalty=st.session_state.presence_penalty, frequency_penalty=st.session_state.frequency_penalty)
     st.session_state.provider = Provider(provider=provider, model=llm)
 
     print(st.session_state.endpoint_schema)
@@ -445,19 +444,23 @@ def endpoint():
     if st.session_state.endpoint_type == "Huggingface":
         st.session_state.endpoint_model = st.text_input("Model ID", value="mistralai/Mistral-7B-Instruct-v0.1")
         st.session_state.endpoint_token = st.text_input("API Token", value="", type="password")
+        st.session_state.provider = Provider(provider="Huggingface", model=st.session_state.endpoint_model)
     elif st.session_state.endpoint_type == "vLLM":
         st.session_state.endpoint_model = st.text_input("Model ID", value="llama-2")
         st.session_state.endpoint_token = st.text_input("API Token", value="", type="password")
+        st.session_state.provider = Provider(provider="vLLM", model=st.session_state.endpoint_model)
     elif st.session_state.endpoint_type == "Other":
         st.markdown("Ensure that the custom endpoint accepts 'prompt' and 'max_tokens' as parameters, and returns a JSON object with a list of objects with a 'text' field.\nFor other fields (temperature, top_p, etc), please specify them in the 'Custom Parameters' field below.")
         fields = {'prompt':'...', 'max_tokens': 256, 'temperature': 0.7, 'top_p': 0.9, 'top_k': 50, 'presence_penalty': 0.0, 'frequency_penalty': 0.0}
         fieldstr = json.dumps(fields, indent=4)
         st.session_state.endpoint_json = st.text_area("Endpoint Schema", value=fieldstr, height=200)
+        st.session_state.endpoint_model = st.text_input("Model ID (if applicable)", value="Custom")
         st.button("Apply", use_container_width=True, on_click=read_schema)
 
 def read_schema():
     st.session_state.endpoint_request_payload = json.loads(st.session_state.endpoint_json)
     st.session_state.custom_endpoint_schema = EndpointSchema(**st.session_state.endpoint_request_payload)
+    st.session_state.provider = Provider(provider="Custom", model=st.session_state.endpoint_model)
     print(st.session_state.custom_endpoint_schema)
 
 def settings_master():
