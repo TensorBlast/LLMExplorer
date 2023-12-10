@@ -121,11 +121,13 @@ def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
     print("Preparing custom prompt from messages!")
     bos_token = st.session_state.prompt_template['bos_token']
     eos_token = st.session_state.prompt_template['eos_token']
+    print(messagelist)
 
-    prompt = bos_token + st.session_state.prompt_template['initial_prompt_value'] + "\n"
+    prompt = bos_token+st.session_state.prompt_template['roles']['user']['pre_message'] + " " + st.session_state.prompt_template['roles']['system']['pre_message'] + "\n" + system_prompt + "\n" + st.session_state.prompt_template['roles']['system']['post_message'] + messagelist[0]['content'] + " " + st.session_state.prompt_template['roles']['user']['post_message']
+    prompt = prompt + "\n" + st.session_state.prompt_template['initial_prompt_value'] + "\n"
     bos_open = True
 
-    for message in messagelist:
+    for message in messagelist[1:]:
         role = message['role']
 
         if role in ['system','user'] and not bos_open:
@@ -146,11 +148,8 @@ def run(conversation_id):
     provider = st.session_state.provider.provider
     llm = st.session_state.provider.model
     if provider == 'Replicate':
-        if 'custom_prompt' in st.session_state and st.session_state.custom_prompt:
-            prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
-            print(prompt)
-        else:
-            prompt = prepare_prompt(messages, system_prompt=st.session_state.sys_prompt)
+        prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
+        print(prompt)
         resp = replicate.run(llm, {"prompt": prompt, "max_new_tokens": st.session_state.endpoint_schema.max_tokens, "temperature": st.session_state.endpoint_schema.temperature, "top_k": st.session_state.endpoint_schema.top_k, "top_p": st.session_state.endpoint_schema.top_p})
         return resp
     elif provider == 'OpenAI':
