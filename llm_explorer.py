@@ -405,6 +405,10 @@ def promptformat():
         st.session_state.initial_prompt = ""
     if 'final_prompt' not in st.session_state:
         st.session_state.final_prompt = ""
+    if 'bos_token' not in st.session_state:
+        st.session_state.bos_token = ""
+    if 'eos_token' not in st.session_state:
+        st.session_state.eos_token = ""
 
     st.markdown('#### Prompt Format')
     msgformat = f"{st.session_state.initial_prompt}\n{st.session_state.sys_prefix} [System Message] {st.session_state.sys_suffix}"\
@@ -421,6 +425,9 @@ def promptformat():
     st.session_state.assistant_suffix = st.text_input("Assistant Message Suffix", value=st.session_state.assistant_suffix)
     st.session_state.final_prompt = st.text_area("Final Prompt", value=st.session_state.final_prompt, height=100)
 
+    st.session_state.bos_token = st.text_input("Beginning of Sequence Token", value="<s>")
+    st.session_state.eos_token = st.text_input("End of Sequence Token", value="</s>")
+
 
     col1, col2 = st.columns(2)
     with col1:
@@ -429,7 +436,7 @@ def promptformat():
             st.session_state.custom_prompt = True
             st.rerun()
     with col2:
-        datadict = dict([('initial_prompt', st.session_state.initial_prompt), ('sys_prefix', st.session_state.sys_prefix), ('sys_suffix', st.session_state.sys_suffix), ('user_prefix', st.session_state.user_prefix), ('user_suffix', st.session_state.user_suffix), ('assistant_prefix', st.session_state.assistant_prefix), ('assistant_suffix', st.session_state.assistant_suffix), ('final_prompt', st.session_state.final_prompt)])
+        datadict = dict([('initial_prompt', st.session_state.initial_prompt), ('sys_prefix', st.session_state.sys_prefix), ('sys_suffix', st.session_state.sys_suffix), ('user_prefix', st.session_state.user_prefix), ('user_suffix', st.session_state.user_suffix), ('assistant_prefix', st.session_state.assistant_prefix), ('assistant_suffix', st.session_state.assistant_suffix), ('final_prompt', st.session_state.final_prompt), ('bos_token', st.session_state.bos_token), ('eos_token', st.session_state.eos_token)])
         st.download_button("Save", use_container_width=True, data=yaml.dump(datadict), mime="text/yaml")
         
         
@@ -444,6 +451,8 @@ def promptformat():
             st.session_state.assistant_suffix = data.get('assistant_suffix', st.session_state.assistant_suffix)
             st.session_state.initial_prompt = data.get('initial_prompt', st.session_state.initial_prompt)
             st.session_state.final_prompt = data.get('final_prompt', st.session_state.final_prompt)
+            st.session_state.bos_token = data.get('bos_token', st.session_state.bos_token)
+            st.session_state.eos_token = data.get('eos_token', st.session_state.eos_token)
             build_prompt_template()
             st.session_state.custom_prompt = True
             st.rerun()
