@@ -142,8 +142,9 @@ replicatemap = dict([('Llama-2-13b-chat', "meta/llama-2-13b-chat:f4e2de70d66816a
 
 promptmapper = {
     'llama': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "[INST]<<SYS>>\n", 'sys_suffix': "\n<</SYS>>\n\n[\INST]", 'user_prefix': "[INST]", 'user_suffix': "[/INST]", 'assistant_prefix': "", 'assistant_suffix': "", 'final_prompt': "Keep the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "bos_token": "<s>", "eos_token": "</s>"},
-    'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system|>", 'sys_suffix': "", 'user_prefix': "<|user|>", 'user_suffix': "", 'assistant_prefix': "<|assistant|>", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"},
-    'default': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "", 'sys_suffix': "", 'user_prefix': "### Instruction:", 'user_suffix': "", 'assistant_prefix': "### Response:", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "", "eos_token": ""}
+    'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system|>\n", 'sys_suffix': "", 'user_prefix': "<|user|>\n", 'user_suffix': "", 'assistant_prefix': "<|assistant|>\n", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"},
+    'default': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "", 'sys_suffix': "", 'user_prefix': "### Instruction:", 'user_suffix': "", 'assistant_prefix': "### Response:", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "", "eos_token": ""},
+    'alpaca': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "", 'sys_suffix': "", 'user_prefix': "### Instruction: ", 'user_suffix': "", 'assistant_prefix': "### Response: ", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"}
 }
 
 action_page = option_menu(None, ["Chat", "Prompt Engineer", "Settings"], 
@@ -161,6 +162,7 @@ def set_default_prompt_template(type: str = 'default'):
         if st.session_state.override_prompt_template:
             build_prompt_template()
             return
+    print(f"Setting prompt template to {type}")
     st.session_state.initial_prompt = promptmapper[type]['initial_prompt']
     st.session_state.sys_prefix = promptmapper[type]['sys_prefix']
     st.session_state.sys_suffix = promptmapper[type]['sys_suffix']
@@ -172,6 +174,7 @@ def set_default_prompt_template(type: str = 'default'):
     st.session_state.bos_token = promptmapper[type]['bos_token']
     st.session_state.eos_token = promptmapper[type]['eos_token']
     build_prompt_template()
+
 
 def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
     print("Preparing custom prompt from messages!")
@@ -236,7 +239,7 @@ def run(conversation_id):
         resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
     elif provider == 'Ollama':
-        prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
+        prompt = apply_prompt_template_v2(messages, system_prompt=st.session_state.sys_prompt)
         client = ollama.Ollama(model=llm, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
         resp = client(prompt=prompt)
         return resp
@@ -550,6 +553,11 @@ def build_prompt_template():
     }
     return st.session_state.prompt_template
 
+def gen_preview():
+    msgformat = f"{st.session_state.initial_prompt}\n{st.session_state.sys_prefix} [System Message] {st.session_state.sys_suffix}"\
+                f" {st.session_state.user_prefix} [User Message] {st.session_state.user_suffix} {st.session_state.assistant_prefix} [Assistant Message] {st.session_state.assistant_suffix}\n{st.session_state.final_prompt}"
+    return msgformat
+
 def promptformat():
     if 'sys_prefix' not in st.session_state:
         st.session_state.sys_prefix = ""
@@ -573,10 +581,16 @@ def promptformat():
         st.session_state.eos_token = ""
 
     st.markdown('#### Prompt Format')
-    msgformat = f"{st.session_state.initial_prompt}\n{st.session_state.sys_prefix} [System Message] {st.session_state.sys_suffix}"\
-    f" {st.session_state.user_prefix} [User Message] {st.session_state.user_suffix} {st.session_state.assistant_prefix} [Assistant Message] {st.session_state.assistant_suffix}\n{st.session_state.final_prompt}"
+    
+
+    st.session_state.preset_prompt_selection = 'default'
+    st.session_state.preset_prompt_selection = st.selectbox("Load from preset", promptmapper.keys())
+    if st.button("Apply Preset"):
+        st.session_state.override_prompt_template = False
+        set_default_prompt_template(st.session_state.preset_prompt_selection)
     preview = st.empty()
-    preview.text_area("Message Format Preview", value= f"{msgformat}", height=200)
+    string = gen_preview()
+    preview.text_area("Prompt Preview", value=string, height=200, key="prompt_preview")
     
     st.session_state.initial_prompt = st.text_area("Initial Prompt", value=st.session_state.initial_prompt, height=100)
     st.session_state.sys_prefix = st.text_input("System Message Prefix", value=st.session_state.sys_prefix)
@@ -586,6 +600,7 @@ def promptformat():
     st.session_state.assistant_prefix = st.text_input("Assistant Message Prefix", value=st.session_state.assistant_prefix)
     st.session_state.assistant_suffix = st.text_input("Assistant Message Suffix", value=st.session_state.assistant_suffix)
     st.session_state.final_prompt = st.text_area("Final Prompt", value=st.session_state.final_prompt, height=100)
+
 
     st.session_state.bos_token = st.text_input("Beginning of Sequence Token", value=st.session_state.bos_token)
     st.session_state.eos_token = st.text_input("End of Sequence Token", value=st.session_state.eos_token)
