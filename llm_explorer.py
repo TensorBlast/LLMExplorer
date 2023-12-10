@@ -235,6 +235,8 @@ def draw_sidebar():
     print("SESSION REPLICATE KEY: ", st.session_state.replicatekey)
     if provider == 'Replicate':
         if not replicate_key_set:
+            if 'REPLICATE_API_TOKEN' in os.environ:
+                st.session_state.replicatekey = os.environ['REPLICATE_API_TOKEN']
             st.session_state.replicatekey = st.sidebar.text_input("Replicate API Key", value=st.session_state.replicatekey, type="password")
             if len(st.session_state.replicatekey) > 0:
                 os.environ['REPLICATE_API_TOKEN'] = st.session_state.replicatekey
@@ -244,6 +246,8 @@ def draw_sidebar():
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'OpenAI':
         if not openai_key_set:
+            if 'OPENAI_API_KEY' in os.environ:
+                st.session_state.openaikey = os.environ['OPENAI_API_KEY']
             st.session_state.openaikey = st.sidebar.text_input("OpenAI API Key", value=st.session_state.openaikey, type="password")
             if len(st.session_state.openaikey) > 0:
                 os.environ['OPENAI_API_KEY'] = st.session_state.openaikey
