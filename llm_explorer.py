@@ -1,5 +1,4 @@
 import streamlit as st
-import litellm
 from streamlit_option_menu import option_menu
 import replicate
 from openai import OpenAI
@@ -10,7 +9,6 @@ from uuid import uuid4 as v4
 import yaml
 from io import StringIO
 import requests
-from litellm import completion
 import json
 from pydantic import BaseModel, Field, field_validator
 
@@ -91,6 +89,10 @@ replicatemap = dict([('Llama-2-13b-chat', "meta/llama-2-13b-chat:f4e2de70d66816a
                      ('CodeLlama-13b-instruct',"meta/codellama-13b-instruct:ca8c51bf3c1aaf181f9df6f10f31768f065c9dddce4407438adc5975a59ce530"), \
                      ('CodeLlama-34b-instruct',"meta/codellama-34b-instruct:b17fdb44c843000741367ae3d73e2bb710d7428a662238ddebbf4302db2b5422")])
 
+promptmapper = {
+    'llama': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<<SYS>>", 'sys_suffix': "<</SYS>>", 'user_prefix': "[INST]", 'user_suffix': "[/INST]", 'assistant_prefix': "", 'assistant_suffix': "", 'final_prompt': "Keep the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."},
+    'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system\>", 'sys_suffix': "", 'user_prefix': "<|user|>", 'user_suffix': "", 'assistant_prefix': "<|assistant|>", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely."},
+}
 
 action_page = option_menu(None, ["Chat", "Prompt Engineer", "Settings"], 
     icons=['house', "list-task", 'gear'], 
@@ -101,6 +103,17 @@ def prepare_prompt(messagelist: list[dict], system_prompt: str = None):
     if system_prompt:
         prompt = f"[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n[\INST] {prompt}"
     return prompt
+
+def set_default_prompt_template(type: str = 'llama'):
+    st.session_state.initial_prompt = promptmapper[type]['initial_prompt']
+    st.session_state.sys_prefix = promptmapper[type]['sys_prefix']
+    st.session_state.sys_suffix = promptmapper[type]['sys_suffix']
+    st.session_state.user_prefix = promptmapper[type]['user_prefix']
+    st.session_state.user_suffix = promptmapper[type]['user_suffix']
+    st.session_state.assistant_prefix = promptmapper[type]['assistant_prefix']
+    st.session_state.assistant_suffix = promptmapper[type]['assistant_suffix']
+    st.session_state.final_prompt = promptmapper[type]['final_prompt']
+    build_prompt_template()
 
 def apply_prompt_template(messagelist: list[dict], system_prompt: str = None, bos_token: str = "", eos_token: str = ""):
     print("Preparing custom prompt from messages!")
@@ -140,16 +153,15 @@ def run(conversation_id):
         resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
     elif provider == 'Ollama':
-        litellm.drop_params = True
-        resp = completion(model='ollama/'+llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
-        return resp.choices[0].message.content
-    elif provider == 'Custom':
         if 'llama' in llm.lower():
-            litellm.register_prompt_template(llm, st.session_state.prompt_template['roles'])
-        litellm.drop_params = True
-        resp = completion(model='huggingface/'+llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
-        print(resp)
+            prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt, bos_token="<s>", eos_token="</s>")
+        else:
+            prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt, bos_token="", eos_token="")
+        client = ollama.Ollama(model=llm, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        resp = client(prompt=prompt)
         return resp
+    elif provider == 'Custom':
+       pass
 
 def list_openai_models():
     client = OpenAI()
@@ -236,7 +248,7 @@ def draw_sidebar():
 def chat():
     placeholder1 = st.empty()
     placeholder2 = st.empty()
-
+    set_default_prompt_template('llama')
     with placeholder1.container():
         draw_sidebar()
         st.sidebar.button("Begin New Conversation", on_click=create_new_conversation)
