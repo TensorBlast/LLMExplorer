@@ -243,6 +243,7 @@ def draw_sidebar():
                 st.sidebar.success('API key entered!', icon='✅')
         model = st.sidebar.selectbox('Model', model_choices['replicate'])
         llm = replicatemap[model]
+        set_default_prompt_template('llama')
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'OpenAI':
         if not openai_key_set:
@@ -260,6 +261,10 @@ def draw_sidebar():
         modellist = list_ollama_models()
         model = st.sidebar.selectbox('Model', modellist)
         llm = model
+        if 'zephyr' in model.lower():
+            set_default_prompt_template('zephyr')
+        else:
+            set_default_prompt_template('llama')
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'Custom':
         st.sidebar.markdown(f'###### *Customize endpoing settings in settings menu*')
@@ -282,7 +287,6 @@ def draw_sidebar():
 def chat():
     placeholder1 = st.empty()
     placeholder2 = st.empty()
-    set_default_prompt_template('llama')
     with placeholder1.container():
         draw_sidebar()
         st.sidebar.button("Begin New Conversation", on_click=create_new_conversation)
