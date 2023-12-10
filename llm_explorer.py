@@ -316,7 +316,7 @@ def drawkeys():
     st.sidebar.button("Add Key", on_click=createnewkey, use_container_width=True)
 
 def gen_prompt():
-    prompt = st.session_state.sys_prompt
+    prompt = st.session_state.sys_prompt_gen
     for id, val in st.session_state.placeholders.items():
         prompt = prompt.replace(f"{{{val['name']}}}", val['value'])
     return prompt
@@ -355,8 +355,8 @@ def prompting():
 
     col1, col2 = st.columns(2)
     with col1:
-        st.session_state.sys_prompt = "Enter a prompt here, using {Key 0} as placeholders"
-        st.session_state.sys_prompt = st.text_area('System Prompt', value=st.session_state.sys_prompt, height=200)         
+        st.session_state.sys_prompt_gen = "Enter a prompt here, using {Key 0} as placeholders"
+        st.session_state.sys_prompt_gen = st.text_area('System Prompt', value=st.session_state.sys_prompt_gen, height=200)         
         for i, (id, val) in enumerate(st.session_state.placeholders.items()):
             st.session_state.placeholders[id]['value'] = st.text_area(f"{val['name'] if len(val['name'])>0 else f'Key {i}'}", value=val['value'], key=str(id)+'value')
 
