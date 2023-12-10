@@ -124,29 +124,31 @@ def apply_prompt_template(messagelist: list[dict], system_prompt: str = None, bo
     prompt += st.session_state.prompt_template['final_prompt_value']
     return prompt
 
-def run(provider: str, llm: str, conversation_id):
+def run(conversation_id):
     messages = list(st.session_state.conversations[conversation_id])
+    provider = st.session_state.provider.provider
+    llm = st.session_state.provider.model
     if provider == 'Replicate':
         if 'custom_prompt' in st.session_state and st.session_state.custom_prompt:
             prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt, bos_token="<s>", eos_token="</s>")
             print(prompt)
         else:
             prompt = prepare_prompt(messages, system_prompt=st.session_state.sys_prompt)
-        resp = replicate.run(llm, {"prompt": prompt, "max_new_tokens": st.session_state.max_new_tokens, "temperature": st.session_state.temperature, "top_k": st.session_state.top_k, "top_p": st.session_state.top_p})
+        resp = replicate.run(llm, {"prompt": prompt, "max_new_tokens": st.session_state.endpoint_schema.max_tokens, "temperature": st.session_state.endpoint_schema.temperature, "top_k": st.session_state.endpoint_schema.top_k, "top_p": st.session_state.endpoint_schema.top_p})
         return resp
     elif provider == 'OpenAI':
         client = OpenAI()
-        resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p, presence_penalty=st.session_state.presence_penalty, frequency_penalty=st.session_state.frequency_penalty)
+        resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
     elif provider == 'Ollama':
         litellm.drop_params = True
-        resp = completion(model='ollama/'+llm, messages=messages, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p, presence_penalty=st.session_state.presence_penalty, frequency_penalty=st.session_state.frequency_penalty)
+        resp = completion(model='ollama/'+llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
     elif provider == 'Huggingface':
         if 'llama' in llm.lower():
             litellm.register_prompt_template(llm, st.session_state.prompt_template['roles'])
         litellm.drop_params = True
-        resp = completion(model='huggingface/'+llm, messages=messages, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p, presence_penalty=st.session_state.presence_penalty, frequency_penalty=st.session_state.frequency_penalty)
+        resp = completion(model='huggingface/'+llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         print(resp)
         return resp
 
@@ -261,7 +263,7 @@ def chat():
         with st.chat_message("Assistant"):
             message_placeholder = st.empty()
             full_response = ""
-            for output in run(st.session_state.provider, st.session_state.llm, current_convo):
+            for output in run(current_convo):
                 full_response += output
                 message_placeholder.markdown(full_response+"▌")
             message_placeholder.markdown(full_response)
