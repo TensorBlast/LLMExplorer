@@ -74,10 +74,28 @@ class EndpointSchema(BaseModel):
 st.session_state.sys_prompt = f"""You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being concise. Please ensure that your responses are socially unbiased and positive in nature. Please also make the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."""
 st.session_state.max_tokens = 4096
 
+replicate_key_set = False
+openai_key_set = False
+hf_key_set = False
 
-os.environ['REPLICATE_API_TOKEN'] = st.secrets['replicate']['API_KEY']
-os.environ['OPENAI_API_KEY'] = st.secrets.openai.API_KEY
-os.environ['HUGGINGFACE_API_KEY'] = st.secrets.huggingface.API_KEY
+if 'replicate' in st.secrets:
+    os.environ['REPLICATE_API_TOKEN'] = st.secrets.replicate.API_KEY
+    replicate_key_set = True
+    st.session_state.replicatekey = st.secrets.replicate.API_KEY
+else:
+    st.session_state.replicatekey = ""
+if 'openai' in st.secrets:
+    os.environ['OPENAI_API_KEY'] = st.secrets.openai.API_KEY
+    openai_key_set = True
+    st.session_state.openaikey = st.secrets.openai.API_KEY
+else:
+    st.session_state.openaikey = ""
+if 'huggingface' in st.secrets:
+    os.environ['HUGGINGFACE_API_KEY'] = st.secrets.huggingface.API_KEY
+    hf_key_set = True
+    st.session_state.huggingfacekey = st.secrets.huggingface.API_KEY
+else:
+    st.session_state.huggingfacekey = ""
 
 
 st.title('LLM Explorer')
@@ -214,11 +232,22 @@ def generate_buttons():
             st.sidebar.button(f"New Conversation...", key=key, on_click=select_convo, args=(key,), use_container_width=True)
 def draw_sidebar():
     provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'Custom'])
+    print("SESSION REPLICATE KEY: ", st.session_state.replicatekey)
     if provider == 'Replicate':
+        if not replicate_key_set:
+            st.session_state.replicatekey = st.sidebar.text_input("Replicate API Key", value=st.session_state.replicatekey, type="password")
+            if len(st.session_state.replicatekey) > 0:
+                os.environ['REPLICATE_API_TOKEN'] = st.session_state.replicatekey
+                st.sidebar.success('API key entered!', icon='✅')
         model = st.sidebar.selectbox('Model', model_choices['replicate'])
         llm = replicatemap[model]
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'OpenAI':
+        if not openai_key_set:
+            st.session_state.openaikey = st.sidebar.text_input("OpenAI API Key", value=st.session_state.openaikey, type="password")
+            if len(st.session_state.openaikey) > 0:
+                os.environ['OPENAI_API_KEY'] = st.session_state.openaikey
+                st.sidebar.success('API key entered!', icon='✅')
         modellist = list_openai_models()
         model = st.sidebar.selectbox('Model', modellist)
         llm = model
