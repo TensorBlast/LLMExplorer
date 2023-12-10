@@ -14,6 +14,23 @@ import together
 import json
 from pydantic import BaseModel, Field, field_validator
 
+from pathlib import Path
+
+if Path('.streamlit').exists():
+    if not Path('.streamlit/secrets.toml').exists():
+        try:
+            with open('.streamlit/secrets.toml', 'w') as f:
+                pass
+        except Exception as e:
+            print(e)
+else:
+    Path('.streamlit').mkdir(exist_ok=True)
+    try:
+        with open('.streamlit/secrets.toml', 'w') as f:
+            pass
+    except Exception as e:
+        print(e)
+
 class Provider(BaseModel):
     provider: str | None = Field(None, description="The provider to use for generation")
     model: str | None = Field(None , description="The LLM to use for generation")
