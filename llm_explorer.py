@@ -10,6 +10,7 @@ from uuid import uuid4 as v4
 import yaml
 from io import StringIO
 import requests
+import together
 import json
 from pydantic import BaseModel, Field, field_validator
 
@@ -79,6 +80,7 @@ replicate_key_set = False
 openai_key_set = False
 hf_key_set = False
 openrouter_key_set = False
+together_key_set = False
 
 if 'replicate' in st.secrets:
     os.environ['REPLICATE_API_TOKEN'] = st.secrets.replicate.API_KEY
@@ -104,6 +106,12 @@ if 'openrouter' in st.secrets:
     openrouter_key_set = True
 else:
     st.session_state.openrouterkey = ""
+if 'together' in st.secrets:
+    os.environ['TOGETHER_API_KEY'] = st.secrets.together.API_KEY
+    st.session_state.togetherkey = st.secrets.together.API_KEY
+    together_key_set = True
+else:
+    st.session_state.togetherkey = ""
 
 
 st.title('LLM Explorer')
@@ -118,6 +126,7 @@ replicatemap = dict([('Llama-2-13b-chat', "meta/llama-2-13b-chat:f4e2de70d66816a
 promptmapper = {
     'llama': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<<SYS>>", 'sys_suffix': "<</SYS>>", 'user_prefix': "[INST]", 'user_suffix': "[/INST]", 'assistant_prefix': "", 'assistant_suffix': "", 'final_prompt': "Keep the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "bos_token": "<s>", "eos_token": "</s>"},
     'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system|>", 'sys_suffix': "", 'user_prefix': "<|user|>", 'user_suffix': "", 'assistant_prefix': "<|assistant|>", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"},
+    'default': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "", 'sys_suffix': "", 'user_prefix': "### Instruction:", 'user_suffix': "", 'assistant_prefix': "### Response:", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "", "eos_token": ""}
 }
 
 action_page = option_menu(None, ["Chat", "Prompt Engineer", "Settings"], 
@@ -130,7 +139,11 @@ def prepare_prompt(messagelist: list[dict], system_prompt: str = None):
         prompt = f"[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n[\INST] {prompt}"
     return prompt
 
-def set_default_prompt_template(type: str = 'llama'):
+def set_default_prompt_template(type: str = 'default'):
+    if "override_prompt_template" in st.session_state:
+        if st.session_state.override_prompt_template:
+            build_prompt_template()
+            return
     st.session_state.initial_prompt = promptmapper[type]['initial_prompt']
     st.session_state.sys_prefix = promptmapper[type]['sys_prefix']
     st.session_state.sys_suffix = promptmapper[type]['sys_suffix']
@@ -166,8 +179,31 @@ def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
             bos_open = False
         
     prompt += st.session_state.prompt_template['final_prompt_value']
+    print(prompt)
     return prompt
 
+def apply_prompt_template_v2(messagelist: list[dict], system_prompt: str = None):
+    print('Custom prompt template!')
+    bos_token = st.session_state.prompt_template['bos_token']
+    eos_token = st.session_state.prompt_template['eos_token']
+
+    prompt = bos_token + st.session_state.prompt_template['roles']['system']['pre_message'] + system_prompt + st.session_state.prompt_template['roles']['system']['post_message'] + st.session_state.prompt_template['roles']['user']['pre_message'] + messagelist[0]['content'] + st.session_state.prompt_template['roles']['user']['post_message'] + " " + st.session_state.prompt_template['roles']['assistant']['pre_message']
+
+    for message in messagelist[1:]:
+        role = message['role']
+
+        if role in ['system','user'] and not bos_open:
+            prompt += bos_token
+            bos_open = True
+        
+        prompt += (st.session_state.prompt_template['roles'][role]['pre_message'] if role=='user' else '') + message['content'] + st.session_state.prompt_template['roles'][role]['post_message'] + " " + (st.session_state.prompt_template['roles']['assistant']['pre_message'] if role=='user' else '')
+
+        if role == 'assistant':
+            prompt += eos_token
+            bos_open = False
+    prompt += st.session_state.prompt_template['final_prompt_value']
+    print(prompt)
+    return prompt
 
 def run(conversation_id):
     messages = list(st.session_state.conversations[conversation_id])
@@ -189,12 +225,18 @@ def run(conversation_id):
         return resp
     elif provider == 'OpenRouter':
         client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
-        resp = client.chat.completions.create(model=llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
+        resp = client.chat.completions.create(model=llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty )
         return resp.choices[0].message.content
+    elif provider == 'Together':
+        prompt = apply_prompt_template_v2(messages, system_prompt=st.session_state.sys_prompt)
+        resp = together.Completion.create(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        return resp.choices[0].text
     elif provider == 'Custom':
        pass
 
 def list_openai_models():
+    if len(st.session_state.openaikey) <= 0:
+        return []
     client = OpenAI()
     models = list(client.models.list())
     res = [model.id for model in models if 'gpt' in model.id.lower()]
@@ -206,6 +248,8 @@ def list_ollama_models():
     return models
 
 def list_hfi_models():
+    if len(st.session_state.huggingfacekey) <= 0:
+        return []
     from huggingface_hub import HfApi, ModelFilter
     api = HfApi()
     models = api.list_models(filter=ModelFilter(task='text-generation', ))
@@ -213,10 +257,19 @@ def list_hfi_models():
     return models
 
 def list_openrouter_models():
+    if len(st.session_state.openrouterkey) <= 0:
+        return []
     client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
     models = list(client.models.list())
     res = [model.id for model in models]
     return res
+
+def list_together_models():
+    if len(st.session_state.togetherkey) <= 0:
+        return []
+    models = together.Models().list()
+    models = [x['name'] for x in models]
+    return models
 
 def clear_all():
     for key in list(st.session_state.keys()):
@@ -249,7 +302,7 @@ def generate_buttons():
         except IndexError:
             st.sidebar.button(f"New Conversation...", key=key, on_click=select_convo, args=(key,), use_container_width=True)
 def draw_sidebar():
-    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'OpenRouter', 'Custom'])
+    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'OpenRouter', 'Together', 'Custom'])
     if provider == 'Replicate':
         if not replicate_key_set:
             if 'REPLICATE_API_TOKEN' in os.environ:
@@ -271,6 +324,8 @@ def draw_sidebar():
                 os.environ['OPENAI_API_KEY'] = st.session_state.openaikey
                 st.sidebar.success('API key entered!', icon='✅')
         if 'openai_models' not in st.session_state:
+            st.session_state.openai_models = list_openai_models()
+        if len(st.session_state.openai_models) <= 0:
             st.session_state.openai_models = list_openai_models()
         model = st.sidebar.selectbox('Model', st.session_state.openai_models)
         llm = model
@@ -294,8 +349,27 @@ def draw_sidebar():
                 st.sidebar.success('API key entered!', icon='✅')
         if 'openrouter_models' not in st.session_state:
             st.session_state.openrouter_models = list_openrouter_models()
+        elif len(st.session_state.openrouter_models) <= 0:
+            st.session_state.openrouter_models = list_openrouter_models()
         model = st.sidebar.selectbox('Model', st.session_state.openrouter_models)
         llm = model
+        st.markdown(f'##### Chosen Model: 🦙💬 {model}')
+    elif provider == 'Together':
+        if not together_key_set:
+            if 'TOGETHER_API_KEY' in os.environ:
+                st.session_state.togetherkey = os.environ['TOGETHER_API_KEY']
+            st.session_state.togetherkey = st.sidebar.text_input("Together API Key", value=st.session_state.togetherkey, type="password")
+            if len(st.session_state.togetherkey) > 0:
+                os.environ['TOGETHER_API_KEY'] = st.session_state.togetherkey
+                together.api_key = st.session_state.togetherkey
+                st.sidebar.success('API key entered!', icon='✅')
+        if 'together_models' not in st.session_state:
+            st.session_state.together_models = list_together_models()
+        elif len(st.session_state.together_models) <= 0:
+            st.session_state.together_models = list_together_models()
+        model = st.sidebar.selectbox('Model', st.session_state.together_models)
+        llm = model
+        set_default_prompt_template()
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'Custom':
         st.sidebar.markdown(f'###### *Customize endpoing settings in settings menu*')
@@ -496,8 +570,8 @@ def promptformat():
     st.session_state.assistant_suffix = st.text_input("Assistant Message Suffix", value=st.session_state.assistant_suffix)
     st.session_state.final_prompt = st.text_area("Final Prompt", value=st.session_state.final_prompt, height=100)
 
-    st.session_state.bos_token = st.text_input("Beginning of Sequence Token", value="<s>")
-    st.session_state.eos_token = st.text_input("End of Sequence Token", value="</s>")
+    st.session_state.bos_token = st.text_input("Beginning of Sequence Token", value=st.session_state.bos_token)
+    st.session_state.eos_token = st.text_input("End of Sequence Token", value=st.session_state.eos_token)
 
 
     col1, col2 = st.columns(2)
@@ -505,6 +579,7 @@ def promptformat():
         if st.button("Apply", use_container_width=True):
             build_prompt_template()
             st.session_state.custom_prompt = True
+            st.session_state.override_prompt_template = True
             st.rerun()
     with col2:
         datadict = dict([('initial_prompt', st.session_state.initial_prompt), ('sys_prefix', st.session_state.sys_prefix), ('sys_suffix', st.session_state.sys_suffix), ('user_prefix', st.session_state.user_prefix), ('user_suffix', st.session_state.user_suffix), ('assistant_prefix', st.session_state.assistant_prefix), ('assistant_suffix', st.session_state.assistant_suffix), ('final_prompt', st.session_state.final_prompt), ('bos_token', st.session_state.bos_token), ('eos_token', st.session_state.eos_token)])
@@ -526,6 +601,7 @@ def promptformat():
             st.session_state.eos_token = data.get('eos_token', st.session_state.eos_token)
             build_prompt_template()
             st.session_state.custom_prompt = True
+            st.session_state.override_prompt_template = True
             st.rerun()
 
 
