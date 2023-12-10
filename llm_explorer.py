@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 import replicate
 from openai import OpenAI
+import openai
 from langchain.llms import ollama
 from collections import defaultdict
 import os
@@ -77,6 +78,7 @@ st.session_state.max_tokens = 4096
 replicate_key_set = False
 openai_key_set = False
 hf_key_set = False
+openrouter_key_set = False
 
 if 'replicate' in st.secrets:
     os.environ['REPLICATE_API_TOKEN'] = st.secrets.replicate.API_KEY
@@ -96,6 +98,12 @@ if 'huggingface' in st.secrets:
     st.session_state.huggingfacekey = st.secrets.huggingface.API_KEY
 else:
     st.session_state.huggingfacekey = ""
+if 'openrouter' in st.secrets:
+    os.environ['OPENROUTER_API_KEY'] = st.secrets.openrouter.API_KEY
+    st.session_state.openrouterkey = st.secrets.openrouter.API_KEY
+    openrouter_key_set = True
+else:
+    st.session_state.openrouterkey = ""
 
 
 st.title('LLM Explorer')
@@ -179,6 +187,10 @@ def run(conversation_id):
         client = ollama.Ollama(model=llm, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
         resp = client(prompt=prompt)
         return resp
+    elif provider == 'OpenRouter':
+        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+        resp = client.chat.completions.create(model=llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
+        return resp.choices[0].message.content
     elif provider == 'Custom':
        pass
 
@@ -199,6 +211,12 @@ def list_hfi_models():
     models = api.list_models(filter=ModelFilter(task='text-generation', ))
     models = [x.id for x in models]
     return models
+
+def list_openrouter_models():
+    client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+    models = list(client.models.list())
+    res = [model.id for model in models]
+    return res
 
 def clear_all():
     for key in list(st.session_state.keys()):
@@ -231,7 +249,7 @@ def generate_buttons():
         except IndexError:
             st.sidebar.button(f"New Conversation...", key=key, on_click=select_convo, args=(key,), use_container_width=True)
 def draw_sidebar():
-    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'Custom'])
+    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'OpenRouter', 'Custom'])
     if provider == 'Replicate':
         if not replicate_key_set:
             if 'REPLICATE_API_TOKEN' in os.environ:
@@ -264,6 +282,18 @@ def draw_sidebar():
             set_default_prompt_template('zephyr')
         else:
             set_default_prompt_template('llama')
+        st.markdown(f'##### Chosen Model: 🦙💬 {model}')
+    elif provider == 'OpenRouter':
+        if not openrouter_key_set:
+            if 'OPENROUTER_API_KEY' in os.environ:
+                st.session_state.openrouterkey = os.environ['OPENROUTER_API_KEY']
+            st.session_state.openrouterkey = st.sidebar.text_input("OpenRouter API Key", value=st.session_state.openrouterkey, type="password")
+            if len(st.session_state.openrouterkey) > 0:
+                os.environ['OPENROUTER_API_KEY'] = st.session_state.openrouterkey
+                st.sidebar.success('API key entered!', icon='✅')
+        modellist = list_openrouter_models()
+        model = st.sidebar.selectbox('Model', modellist)
+        llm = model
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'Custom':
         st.sidebar.markdown(f'###### *Customize endpoing settings in settings menu*')
