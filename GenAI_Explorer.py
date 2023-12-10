@@ -114,7 +114,7 @@ else:
     st.session_state.togetherkey = ""
 
 
-st.title('LLM Explorer')
+st.title('GenAI Explorer')
 
 model_choices = dict(replicate=['Llama-2-13b-chat', 'Llama-2-70b-chat', 'CodeLlama-13b-instruct','CodeLlama-34b-instruct'])
 
