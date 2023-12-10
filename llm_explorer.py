@@ -91,7 +91,7 @@ replicatemap = dict([('Llama-2-13b-chat', "meta/llama-2-13b-chat:f4e2de70d66816a
 
 promptmapper = {
     'llama': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<<SYS>>", 'sys_suffix': "<</SYS>>", 'user_prefix': "[INST]", 'user_suffix': "[/INST]", 'assistant_prefix': "", 'assistant_suffix': "", 'final_prompt': "Keep the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "bos_token": "<s>", "eos_token": "</s>"},
-    'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system\>", 'sys_suffix': "", 'user_prefix': "<|user|>", 'user_suffix': "", 'assistant_prefix': "<|assistant|>", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"},
+    'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system|>", 'sys_suffix': "", 'user_prefix': "<|user|>", 'user_suffix': "", 'assistant_prefix': "<|assistant|>", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"},
 }
 
 action_page = option_menu(None, ["Chat", "Prompt Engineer", "Settings"], 
