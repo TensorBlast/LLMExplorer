@@ -147,7 +147,7 @@ def run(conversation_id):
     llm = st.session_state.provider.model
     if provider == 'Replicate':
         if 'custom_prompt' in st.session_state and st.session_state.custom_prompt:
-            prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt, bos_token="<s>", eos_token="</s>")
+            prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
             print(prompt)
         else:
             prompt = prepare_prompt(messages, system_prompt=st.session_state.sys_prompt)
@@ -158,10 +158,7 @@ def run(conversation_id):
         resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
     elif provider == 'Ollama':
-        if 'llama' in llm.lower():
-            prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt, bos_token="<s>", eos_token="</s>")
-        else:
-            prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt, bos_token="", eos_token="")
+        prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
         client = ollama.Ollama(model=llm, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
         resp = client(prompt=prompt)
         return resp
