@@ -2,13 +2,11 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 import replicate
 from openai import OpenAI
-import openai
 from langchain.llms import ollama
 from collections import defaultdict
 import os
 from uuid import uuid4 as v4
 import yaml
-from io import StringIO
 import requests
 import together
 import json
