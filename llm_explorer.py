@@ -12,6 +12,67 @@ from io import StringIO
 import requests
 from litellm import completion
 import json
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional
+
+class Provider(BaseModel):
+    provider: Optional[str] = Field(None, description="The provider to use for generation")
+    model: Optional[str] = Field(None , description="The LLM to use for generation")
+class EndpointSchema(BaseModel):
+    prompt: Optional[str] = Field(default=None, description="The prompt to be used for generation", )
+    max_tokens: int = Field(256, description="The maximum number of tokens to generate")
+    temperature: float = Field(0.75, description="The temperature to use for generation")
+    top_p: float = Field(0.9, description="The top_p to use for generation")
+    top_k: int = Field(50, description="The top_k to use for generation")
+    presence_penalty: float = Field(0.0, description="The presence penalty to use for generation")
+    frequency_penalty: float = Field(0.0, description="The frequency penalty to use for generation")
+
+
+    @field_validator('temperature')
+    def temperature_range(cls, v):
+        if v < 0.01 or v > 5.0:
+            raise ValueError('Temperature must be between 0.01 and 5.0')
+        return v
+
+    @field_validator('top_p')
+    def top_p_range(cls, v):
+        if v < 0.01 or v > 1.0:
+            raise ValueError('Top_p must be between 0.01 and 1.0')
+        return v
+
+    @field_validator('top_k')
+    def top_k_range(cls, v):
+        if v < 1 or v > 10000:
+            raise ValueError('Top_k must be between 1 and 10000')
+        return v
+
+    @field_validator('presence_penalty')
+    def presence_penalty_range(cls, v):
+        if v < -2.0 or v > 2.0:
+            raise ValueError('Presence Penalty must be between -2.0 and 2.0')
+        return v
+
+    @field_validator('frequency_penalty')
+    def frequency_penalty_range(cls, v):
+        if v < -2.0 or v > 2.0:
+            raise ValueError('Frequency Penalty must be between -2.0 and 2.0')
+        return v
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "prompt": "This is a prompt",
+                "max_tokens": 2048,
+                "temperature": 0.75,
+                "top_p": 0.9,
+                "top_k": 50,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
+                "provider": "HFI",
+                "model": "Llama-2-13b-chat"
+            }
+        }
+
 
 st.session_state.sys_prompt = f"""You are a helpful, respectful and honest assistant. Always answer as helpfully as possible, while being concise. Please ensure that your responses are socially unbiased and positive in nature. Please also make the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information."""
 st.session_state.max_tokens = 4096
@@ -166,6 +227,10 @@ def draw_sidebar():
     st.session_state.max_new_tokens = st.sidebar.slider('max_new_tokens', min_value=32, max_value=4096, value=2048, step=8)
     st.session_state.provider = provider   
     st.session_state.llm = llm
+    st.session_state.endpoint_schema = EndpointSchema(max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p, top_k=st.session_state.top_k, presence_penalty=st.session_state.presence_penalty, frequency_penalty=st.session_state.frequency_penalty)
+    st.session_state.provider = Provider(provider=provider, model=llm)
+
+    print(st.session_state.endpoint_schema)
 
 def chat():
     placeholder1 = st.empty()
@@ -383,16 +448,15 @@ def endpoint():
         st.session_state.endpoint_token = st.text_input("API Token", value="", type="password")
     elif st.session_state.endpoint_type == "Other":
         st.markdown("Ensure that the custom endpoint accepts 'prompt' and 'max_tokens' as parameters, and returns a JSON object with a list of objects with a 'text' field.\nFor other fields (temperature, top_p, etc), please specify them in the 'Custom Parameters' field below.")
-        fields = {'prompt':'str', 'max_tokens': 'int', 'temperature': 'float', 'top_p': 'float', 'top_k': 'int', 'presence_penalty': 'float', 'frequency_penalty': 'float'}
+        fields = {'prompt':'...', 'max_tokens': 256, 'temperature': 0.7, 'top_p': 0.9, 'top_k': 50, 'presence_penalty': 0.0, 'frequency_penalty': 0.0}
         fieldstr = json.dumps(fields, indent=4)
-        st.session_state.endpoint_schema = st.text_area("Endpoint Schema", value=fieldstr, height=200)
+        st.session_state.endpoint_json = st.text_area("Endpoint Schema", value=fieldstr, height=200)
         st.button("Apply", use_container_width=True, on_click=read_schema)
 
 def read_schema():
-    st.session_state.endpoint_request_payload = json.loads(st.session_state.endpoint_schema)
-    for key in st.session_state.endpoint_request_payload.keys():
-        st.session_state.endpoint_request_payload[key] = st.text_input(key, value=st.session_state.endpoint_request_payload[key])
-    print(st.session_state.endpoint_request_payload)
+    st.session_state.endpoint_request_payload = json.loads(st.session_state.endpoint_json)
+    st.session_state.custom_endpoint_schema = EndpointSchema(**st.session_state.endpoint_request_payload)
+    print(st.session_state.custom_endpoint_schema)
 
 def settings_master():
     with st.sidebar:
