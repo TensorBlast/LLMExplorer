@@ -139,7 +139,6 @@ def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
     print("Preparing custom prompt from messages!")
     bos_token = st.session_state.prompt_template['bos_token']
     eos_token = st.session_state.prompt_template['eos_token']
-    print(messagelist)
 
     prompt = bos_token+st.session_state.prompt_template['roles']['user']['pre_message'] + " " + st.session_state.prompt_template['roles']['system']['pre_message'] + "\n" + system_prompt + "\n" + st.session_state.prompt_template['roles']['system']['post_message'] + messagelist[0]['content'] + " " + st.session_state.prompt_template['roles']['user']['post_message']
     prompt = prompt + "\n" + st.session_state.prompt_template['initial_prompt_value'] + "\n"
@@ -160,6 +159,7 @@ def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
         
     prompt += st.session_state.prompt_template['final_prompt_value']
     return prompt
+
 
 def run(conversation_id):
     messages = list(st.session_state.conversations[conversation_id])
@@ -232,7 +232,6 @@ def generate_buttons():
             st.sidebar.button(f"New Conversation...", key=key, on_click=select_convo, args=(key,), use_container_width=True)
 def draw_sidebar():
     provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'Custom'])
-    print("SESSION REPLICATE KEY: ", st.session_state.replicatekey)
     if provider == 'Replicate':
         if not replicate_key_set:
             if 'REPLICATE_API_TOKEN' in os.environ:
