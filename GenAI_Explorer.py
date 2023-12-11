@@ -253,7 +253,7 @@ def togethercompletion(prompt: str, model: str, max_tokens: int, temperature: fl
     else:
         response = requests.post(url=url, json=payload, headers=headers)
 
-    return response.text
+    return response.json()['choices'][0]['text']
 
 def listtogetherinstances():
     import requests
