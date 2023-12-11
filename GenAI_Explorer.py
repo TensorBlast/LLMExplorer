@@ -13,6 +13,7 @@ import json
 from pydantic import BaseModel, Field, field_validator
 
 from pathlib import Path
+import httpx as _httpx
 
 
 if Path('.streamlit').exists():
@@ -207,6 +208,7 @@ def apply_prompt_template_v2(messagelist: list[dict], system_prompt: str = None)
     eos_token = st.session_state.prompt_template['eos_token']
 
     prompt = bos_token + st.session_state.prompt_template['roles']['system']['pre_message'] + system_prompt + st.session_state.prompt_template['roles']['system']['post_message'] + st.session_state.prompt_template['roles']['user']['pre_message'] + messagelist[0]['content'] + st.session_state.prompt_template['roles']['user']['post_message'] + " " + st.session_state.prompt_template['roles']['assistant']['pre_message']
+    bos_open = True
 
     for message in messagelist[1:]:
         role = message['role']
@@ -224,17 +226,72 @@ def apply_prompt_template_v2(messagelist: list[dict], system_prompt: str = None)
     print(prompt)
     return prompt
 
+def togethercompletion(prompt: str, model: str, max_tokens: int, temperature: float, top_p: float, top_k: int):
+    url = 'https://api.together.xyz/v1/completions'
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "max_tokens": max_tokens,
+        # "stop": ".",
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "repetition_penalty": 1
+    }
+
+    headers = {
+    "accept": "application/json",
+    "content-type": "application/json",
+    "Authorization": f"Bearer {st.session_state.togetherkey}"
+    }
+
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        print("Using proxies for Together prompt inference!")
+        response = requests.post(url=url, json=payload, headers=headers, proxies=proxies, verify=False)
+    else:
+        response = requests.post(url=url, json=payload, headers=headers)
+
+    return response.text
+
+def listtogetherinstances():
+    import requests
+
+    url = "https://api.together.xyz/instances"
+
+    headers = {
+        "accept": "application/json",
+        "Authorization": f"Bearer {st.session_state.togetherkey}"
+    }
+
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        response = requests.get(url, headers=headers, proxies=proxies, verify=False)
+    else:
+        response = requests.get(url, headers=headers)
+
+    print(response.text)
+
 def run(conversation_id):
     messages = list(st.session_state.conversations[conversation_id])
     provider = st.session_state.provider.provider
     llm = st.session_state.provider.model
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+    else:
+        _http_client = _httpx.Client()
     if provider == 'Replicate':
         prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
         print(prompt)
         resp = replicate.run(llm, {"prompt": prompt, "max_new_tokens": st.session_state.endpoint_schema.max_tokens, "temperature": st.session_state.endpoint_schema.temperature, "top_k": st.session_state.endpoint_schema.top_k, "top_p": st.session_state.endpoint_schema.top_p})
         return resp
     elif provider == 'OpenAI':
-        client = OpenAI()
+        if 'proxies' in st.session_state:
+            client = OpenAI(http_client=_http_client)
+        else:
+            client = OpenAI(http_client=_http_client)
         resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
     elif provider == 'Ollama':
@@ -243,20 +300,29 @@ def run(conversation_id):
         resp = client(prompt=prompt)
         return resp
     elif provider == 'OpenRouter':
-        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+        if 'proxies' in st.session_state:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1', http_client=_http_client)
+        else:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
         resp = client.chat.completions.create(model=llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty )
         return resp.choices[0].message.content
     elif provider == 'Together':
         prompt = apply_prompt_template_v2(messages, system_prompt=st.session_state.sys_prompt)
-        resp = together.Completion.create(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
-        return resp.choices[0].text
+        # resp = together.Completion.create(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        # return resp.choices[0].text
+        return togethercompletion(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
     elif provider == 'Custom':
        pass
 
 def list_openai_models():
     if len(st.session_state.openaikey) <= 0:
         return []
-    client = OpenAI()
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+        client = OpenAI(http_client=_http_client)
+    else:
+        client = OpenAI()
     models = list(client.models.list())
     res = [model.id for model in models if 'gpt' in model.id.lower()]
     return res
@@ -278,7 +344,12 @@ def list_hfi_models():
 def list_openrouter_models():
     if len(st.session_state.openrouterkey) <= 0:
         return []
-    client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1', http_client=_http_client)
+    else:
+        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
     models = list(client.models.list())
     res = [model.id for model in models]
     return res
@@ -288,6 +359,12 @@ def list_together_models():
         return []
     models = together.Models().list()
     models = [x['name'] for x in models]
+    return models
+
+def read_together_model_list(pathstr: Path = Path('./togethermodellist.txt')):
+    with open(pathstr, 'r') as f:
+        models = f.readlines()
+    models = [x.strip() for x in models]
     return models
 
 def clear_all():
@@ -385,7 +462,7 @@ def draw_sidebar():
         if 'together_models' not in st.session_state:
             st.session_state.together_models = list_together_models()
         elif len(st.session_state.together_models) <= 0:
-            st.session_state.together_models = list_together_models()
+            st.session_state.together_models = read_together_model_list()
         model = st.sidebar.selectbox('Model', st.session_state.together_models)
         llm = model
         set_default_prompt_template()
@@ -487,13 +564,22 @@ def generate():
     print("PROMPT: ", prompt)
     full_response = ""
     provider = st.session_state.provider.provider
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+    else:
+        _http_client = _httpx.Client()
+
     if provider == 'Replicate':
         for resp in replicate.run(st.session_state.llm, {"prompt": prompt, "max_new_tokens": st.session_state.max_new_tokens, "temperature": st.session_state.temperature, "top_k": st.session_state.top_k, "top_p": st.session_state.top_p}):
             full_response += resp
             st.session_state.generation = full_response+"▌"
         return full_response
     elif provider == 'OpenAI':
-        client = OpenAI()
+        if 'proxies' in st.session_state:
+            client = OpenAI(http_client=_http_client)
+        else:
+            client = OpenAI()
         prompt = [{"role": "user", "content": prompt}]
         resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
         return resp.choices[0].message.content
@@ -505,13 +591,17 @@ def generate():
         return resp
     elif provider == 'OpenRouter':
         prompt = [{"role": "user", "content": prompt}]
-        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+        if 'proxies' in st.session_state:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1', http_client=_http_client)
+        else:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
         resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
         return resp.choices[0].message.content
     elif provider == 'Together':
         prompt = apply_prompt_template_v2(prompt, system_prompt=st.session_state.sys_prompt)
-        resp = together.Completion.create(prompt=prompt, model=st.session_state.llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
-        return resp.choices[0].text
+        # resp = together.Completion.create(prompt=prompt, model=st.session_state.llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        # return resp.choices[0].text
+        return togethercompletion(prompt=prompt, model=st.session_state.llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
     
 def prompting():
     placeholder1 = st.empty()
@@ -688,18 +778,25 @@ def proxy():
     if 'NO_PROXY' not in os.environ:
         os.environ['NO_PROXY'] = "localhost,*.aexp.com,192.168.99.1/24"
 
+    if 'username' not in st.session_state:
+        st.session_state.username = ""
+        st.session_state.password = ""
+
     st.session_state.http_proxy = os.environ['HTTP_PROXY']
     st.session_state.https_proxy = os.environ['HTTPS_PROXY']
     st.session_state.no_proxy = os.environ['NO_PROXY']
     st.session_state.http_proxy = st.text_input("HTTP Proxy", value=st.session_state.http_proxy)
     st.session_state.https_proxy = st.text_input("HTTPS Proxy", value=st.session_state.https_proxy)
     st.session_state.no_proxy = st.text_input("No Proxy", value=st.session_state.no_proxy)
+    st.session_state.username = st.text_input("Username", value=st.session_state.username)
+    st.session_state.password = st.text_input("Password", value=st.session_state.password, type="password")
 
     if st.button("Apply", use_container_width=True):
-        os.environ['HTTP_PROXY'] = st.session_state.http_proxy
-        os.environ['http_proxy'] = st.session_state.http_proxy
-        os.environ['HTTPS_PROXY'] = st.session_state.https_proxy
-        os.environ['https_proxy'] = st.session_state.https_proxy
+        os.environ['HTTP_PROXY'] = 'http://' + st.session_state.http_proxy
+        os.environ['http_proxy'] = 'http://' + st.session_state.http_proxy
+        os.environ['HTTPS_PROXY'] = 'http://' + st.session_state.https_proxy
+        os.environ['https_proxy'] = 'http://' + st.session_state.https_proxy
+        st.session_state.proxies = {'http://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.http_proxy, 'https://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.https_proxy}
         os.environ['NO_PROXY'] = st.session_state.no_proxy
         print("Proxy - ", os.environ['http_proxy'])
     if st.button("Reset", use_container_width=True):
@@ -708,7 +805,10 @@ def proxy():
         os.environ['HTTPS_PROXY'] = st.session_state.https_proxy = ""
         os.environ['https_proxy'] = st.session_state.https_proxy = ""
         os.environ['NO_PROXY'] = st.session_state.no_proxy = ""
-
+        st.session_state.username = ""
+        st.session_state.password = ""
+        del st.session_state.proxies
+        st.rerun()
 
 
 def settings_master():
