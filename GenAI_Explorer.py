@@ -460,7 +460,7 @@ def draw_sidebar():
                 together.api_key = st.session_state.togetherkey
                 st.sidebar.success('API key entered!', icon='✅')
         if 'together_models' not in st.session_state:
-            st.session_state.together_models = list_together_models()
+            st.session_state.together_models = read_together_model_list()
         elif len(st.session_state.together_models) <= 0:
             st.session_state.together_models = read_together_model_list()
         model = st.sidebar.selectbox('Model', st.session_state.together_models)
@@ -792,11 +792,11 @@ def proxy():
     st.session_state.password = st.text_input("Password", value=st.session_state.password, type="password")
 
     if st.button("Apply", use_container_width=True):
-        os.environ['HTTP_PROXY'] = 'http://' + st.session_state.http_proxy
-        os.environ['http_proxy'] = 'http://' + st.session_state.http_proxy
-        os.environ['HTTPS_PROXY'] = 'http://' + st.session_state.https_proxy
-        os.environ['https_proxy'] = 'http://' + st.session_state.https_proxy
-        st.session_state.proxies = {'http://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.http_proxy, 'https://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.https_proxy}
+        os.environ['HTTP_PROXY'] = st.session_state.http_proxy
+        os.environ['http_proxy'] = st.session_state.http_proxy
+        os.environ['HTTPS_PROXY'] = st.session_state.https_proxy
+        os.environ['https_proxy'] = st.session_state.https_proxy
+        st.session_state.proxies = {'http://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.http_proxy.replace('http://',''), 'https://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.https_proxy.replace('http://','')}
         os.environ['NO_PROXY'] = st.session_state.no_proxy
         print("Proxy - ", os.environ['http_proxy'])
     if st.button("Reset", use_container_width=True):
