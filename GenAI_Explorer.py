@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from pathlib import Path
 
+
 if Path('.streamlit').exists():
     if not Path('.streamlit/secrets.toml').exists():
         try:
@@ -483,17 +484,34 @@ def gen_prompt():
 
 def generate():
     prompt = gen_prompt()
+    print("PROMPT: ", prompt)
     full_response = ""
-    if st.session_state.provider == 'Replicate':
+    provider = st.session_state.provider.provider
+    if provider == 'Replicate':
         for resp in replicate.run(st.session_state.llm, {"prompt": prompt, "max_new_tokens": st.session_state.max_new_tokens, "temperature": st.session_state.temperature, "top_k": st.session_state.top_k, "top_p": st.session_state.top_p}):
             full_response += resp
             st.session_state.generation = full_response+"▌"
         return full_response
-    elif st.session_state.provider == 'OpenAI':
+    elif provider == 'OpenAI':
         client = OpenAI()
         prompt = [{"role": "user", "content": prompt}]
         resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
         return resp.choices[0].message.content
+    elif provider == 'Ollama':
+        prompt = [{"role": "user", "content": prompt}]
+        prompt = apply_prompt_template_v2(prompt, system_prompt=st.session_state.sys_prompt)
+        client = ollama.Ollama(model=st.session_state.llm, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        resp = client(prompt=prompt)
+        return resp
+    elif provider == 'OpenRouter':
+        prompt = [{"role": "user", "content": prompt}]
+        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+        resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
+        return resp.choices[0].message.content
+    elif provider == 'Together':
+        prompt = apply_prompt_template_v2(prompt, system_prompt=st.session_state.sys_prompt)
+        resp = together.Completion.create(prompt=prompt, model=st.session_state.llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        return resp.choices[0].text
     
 def prompting():
     placeholder1 = st.empty()
@@ -660,6 +678,7 @@ def read_schema():
     st.session_state.custom_endpoint_schema = EndpointSchema(**st.session_state.endpoint_request_payload)
     st.session_state.provider = Provider(provider="Custom", model=st.session_state.endpoint_model)
     print(st.session_state.custom_endpoint_schema)
+
 
 def proxy():
     if 'HTTP_PROXY' not in os.environ:
