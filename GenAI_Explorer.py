@@ -179,7 +179,7 @@ def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
     bos_token = st.session_state.prompt_template['bos_token']
     eos_token = st.session_state.prompt_template['eos_token']
 
-    prompt = bos_token+st.session_state.prompt_template['roles']['user']['pre_message'] + " " + st.session_state.prompt_template['roles']['system']['pre_message'] + "\n" + system_prompt + "\n" + st.session_state.prompt_template['roles']['system']['post_message'] + messagelist[0]['content'] + " " + st.session_state.prompt_template['roles']['user']['post_message']
+    prompt = bos_token + st.session_state.prompt_template['roles']['system']['pre_message'] + "\n" + system_prompt + "\n" + st.session_state.prompt_template['roles']['system']['post_message'] + st.session_state.prompt_template['roles']['user']['pre_message'] + messagelist[0]['content']  + st.session_state.prompt_template['roles']['user']['post_message']
     prompt = prompt + "\n" + st.session_state.prompt_template['initial_prompt_value'] + "\n"
     bos_open = True
 
@@ -661,15 +661,47 @@ def read_schema():
     st.session_state.provider = Provider(provider="Custom", model=st.session_state.endpoint_model)
     print(st.session_state.custom_endpoint_schema)
 
+def proxy():
+    if 'HTTP_PROXY' not in os.environ:
+        os.environ['HTTP_PROXY'] = ""
+    if 'HTTPS_PROXY' not in os.environ:
+        os.environ['HTTPS_PROXY'] = ""
+    if 'NO_PROXY' not in os.environ:
+        os.environ['NO_PROXY'] = "localhost,*.aexp.com,192.168.99.1/24"
+
+    st.session_state.http_proxy = os.environ['HTTP_PROXY']
+    st.session_state.https_proxy = os.environ['HTTPS_PROXY']
+    st.session_state.no_proxy = os.environ['NO_PROXY']
+    st.session_state.http_proxy = st.text_input("HTTP Proxy", value=st.session_state.http_proxy)
+    st.session_state.https_proxy = st.text_input("HTTPS Proxy", value=st.session_state.https_proxy)
+    st.session_state.no_proxy = st.text_input("No Proxy", value=st.session_state.no_proxy)
+
+    if st.button("Apply", use_container_width=True):
+        os.environ['HTTP_PROXY'] = st.session_state.http_proxy
+        os.environ['http_proxy'] = st.session_state.http_proxy
+        os.environ['HTTPS_PROXY'] = st.session_state.https_proxy
+        os.environ['https_proxy'] = st.session_state.https_proxy
+        os.environ['NO_PROXY'] = st.session_state.no_proxy
+        print("Proxy - ", os.environ['http_proxy'])
+    if st.button("Reset", use_container_width=True):
+        os.environ['HTTP_PROXY'] = st.session_state.http_proxy = ""
+        os.environ['http_proxy'] = st.session_state.http_proxy = ""
+        os.environ['HTTPS_PROXY'] = st.session_state.https_proxy = ""
+        os.environ['https_proxy'] = st.session_state.https_proxy = ""
+        os.environ['NO_PROXY'] = st.session_state.no_proxy = ""
+
+
+
 def settings_master():
     with st.sidebar:
-        settingpage = option_menu("Settings", ["General", "Prompt Format", "Custom Endpoint"],
+        settingpage = option_menu("Settings", ["General", "Prompt Format", "Custom Endpoint", "Proxy Settings"],
                                 icons=['gear', 'list-task', 'code'], 
             menu_icon="cast", default_index=0, orientation="vertical")
     setting_page_to_funcs = {
     "General": settings,
     "Prompt Format": promptformat,
-    "Custom Endpoint": endpoint
+    "Custom Endpoint": endpoint,
+    "Proxy Settings": proxy
     }
     setting_page_to_funcs[settingpage]()
 
