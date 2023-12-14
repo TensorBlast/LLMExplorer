@@ -2,19 +2,19 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 import replicate
 from openai import OpenAI
-import openai
 from langchain.llms import ollama
 from collections import defaultdict
 import os
 from uuid import uuid4 as v4
 import yaml
-from io import StringIO
 import requests
 import together
 import json
 from pydantic import BaseModel, Field, field_validator
 
 from pathlib import Path
+import httpx as _httpx
+
 
 if Path('.streamlit').exists():
     if not Path('.streamlit/secrets.toml').exists():
@@ -141,9 +141,10 @@ replicatemap = dict([('Llama-2-13b-chat', "meta/llama-2-13b-chat:f4e2de70d66816a
                      ('CodeLlama-34b-instruct',"meta/codellama-34b-instruct:b17fdb44c843000741367ae3d73e2bb710d7428a662238ddebbf4302db2b5422")])
 
 promptmapper = {
-    'llama': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<<SYS>>", 'sys_suffix': "<</SYS>>", 'user_prefix': "[INST]", 'user_suffix': "[/INST]", 'assistant_prefix': "", 'assistant_suffix': "", 'final_prompt': "Keep the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "bos_token": "<s>", "eos_token": "</s>"},
-    'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system|>", 'sys_suffix': "", 'user_prefix': "<|user|>", 'user_suffix': "", 'assistant_prefix': "<|assistant|>", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"},
-    'default': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "", 'sys_suffix': "", 'user_prefix': "### Instruction:", 'user_suffix': "", 'assistant_prefix': "### Response:", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "", "eos_token": ""}
+    'llama': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "[INST]<<SYS>>\n", 'sys_suffix': "\n<</SYS>>\n\n[\INST]", 'user_prefix': "[INST]", 'user_suffix': "[/INST]", 'assistant_prefix': "", 'assistant_suffix': "", 'final_prompt': "Keep the response as concise as possible. If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.", "bos_token": "<s>", "eos_token": "</s>"},
+    'zephyr': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "<|system|>\n", 'sys_suffix': "", 'user_prefix': "<|user|>\n", 'user_suffix': "", 'assistant_prefix': "<|assistant|>\n", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"},
+    'default': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "", 'sys_suffix': "", 'user_prefix': "### Instruction:", 'user_suffix': "", 'assistant_prefix': "### Response:", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "", "eos_token": ""},
+    'alpaca': {'initial_prompt': "You are a helpful AI assistant", 'sys_prefix': "", 'sys_suffix': "", 'user_prefix': "### Instruction: ", 'user_suffix': "", 'assistant_prefix': "### Response: ", 'assistant_suffix': "", 'final_prompt': "Answer accurately and concisely.", "bos_token": "<s>", "eos_token": "</s>"}
 }
 
 action_page = option_menu(None, ["Chat", "Prompt Engineer", "Settings"], 
@@ -161,6 +162,7 @@ def set_default_prompt_template(type: str = 'default'):
         if st.session_state.override_prompt_template:
             build_prompt_template()
             return
+    print(f"Setting prompt template to {type}")
     st.session_state.initial_prompt = promptmapper[type]['initial_prompt']
     st.session_state.sys_prefix = promptmapper[type]['sys_prefix']
     st.session_state.sys_suffix = promptmapper[type]['sys_suffix']
@@ -173,12 +175,13 @@ def set_default_prompt_template(type: str = 'default'):
     st.session_state.eos_token = promptmapper[type]['eos_token']
     build_prompt_template()
 
+
 def apply_prompt_template(messagelist: list[dict], system_prompt: str = None):
     print("Preparing custom prompt from messages!")
     bos_token = st.session_state.prompt_template['bos_token']
     eos_token = st.session_state.prompt_template['eos_token']
 
-    prompt = bos_token+st.session_state.prompt_template['roles']['user']['pre_message'] + " " + st.session_state.prompt_template['roles']['system']['pre_message'] + "\n" + system_prompt + "\n" + st.session_state.prompt_template['roles']['system']['post_message'] + messagelist[0]['content'] + " " + st.session_state.prompt_template['roles']['user']['post_message']
+    prompt = bos_token + st.session_state.prompt_template['roles']['system']['pre_message'] + "\n" + system_prompt + "\n" + st.session_state.prompt_template['roles']['system']['post_message'] + st.session_state.prompt_template['roles']['user']['pre_message'] + messagelist[0]['content']  + st.session_state.prompt_template['roles']['user']['post_message']
     prompt = prompt + "\n" + st.session_state.prompt_template['initial_prompt_value'] + "\n"
     bos_open = True
 
@@ -205,6 +208,7 @@ def apply_prompt_template_v2(messagelist: list[dict], system_prompt: str = None)
     eos_token = st.session_state.prompt_template['eos_token']
 
     prompt = bos_token + st.session_state.prompt_template['roles']['system']['pre_message'] + system_prompt + st.session_state.prompt_template['roles']['system']['post_message'] + st.session_state.prompt_template['roles']['user']['pre_message'] + messagelist[0]['content'] + st.session_state.prompt_template['roles']['user']['post_message'] + " " + st.session_state.prompt_template['roles']['assistant']['pre_message']
+    bos_open = True
 
     for message in messagelist[1:]:
         role = message['role']
@@ -222,39 +226,103 @@ def apply_prompt_template_v2(messagelist: list[dict], system_prompt: str = None)
     print(prompt)
     return prompt
 
+def togethercompletion(prompt: str, model: str, max_tokens: int, temperature: float, top_p: float, top_k: int):
+    url = 'https://api.together.xyz/v1/completions'
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "max_tokens": max_tokens,
+        # "stop": ".",
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "repetition_penalty": 1
+    }
+
+    headers = {
+    "accept": "application/json",
+    "content-type": "application/json",
+    "Authorization": f"Bearer {st.session_state.togetherkey}"
+    }
+
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        print("Using proxies for Together prompt inference!")
+        response = requests.post(url=url, json=payload, headers=headers, proxies=proxies, verify=False)
+    else:
+        response = requests.post(url=url, json=payload, headers=headers)
+
+    return response.json()['choices'][0]['text']
+
+def listtogetherinstances():
+    import requests
+
+    url = "https://api.together.xyz/instances"
+
+    headers = {
+        "accept": "application/json",
+        "Authorization": f"Bearer {st.session_state.togetherkey}"
+    }
+
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        response = requests.get(url, headers=headers, proxies=proxies, verify=False)
+    else:
+        response = requests.get(url, headers=headers)
+
+    print(response.text)
+
 def run(conversation_id):
     messages = list(st.session_state.conversations[conversation_id])
     provider = st.session_state.provider.provider
     llm = st.session_state.provider.model
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+    else:
+        _http_client = _httpx.Client()
     if provider == 'Replicate':
         prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
         print(prompt)
         resp = replicate.run(llm, {"prompt": prompt, "max_new_tokens": st.session_state.endpoint_schema.max_tokens, "temperature": st.session_state.endpoint_schema.temperature, "top_k": st.session_state.endpoint_schema.top_k, "top_p": st.session_state.endpoint_schema.top_p})
         return resp
     elif provider == 'OpenAI':
-        client = OpenAI()
+        if 'proxies' in st.session_state:
+            client = OpenAI(http_client=_http_client)
+        else:
+            client = OpenAI(http_client=_http_client)
         resp = client.chat.completions.create(model=llm, messages= messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty)
         return resp.choices[0].message.content
     elif provider == 'Ollama':
-        prompt = apply_prompt_template(messages, system_prompt=st.session_state.sys_prompt)
+        prompt = apply_prompt_template_v2(messages, system_prompt=st.session_state.sys_prompt)
         client = ollama.Ollama(model=llm, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
         resp = client(prompt=prompt)
         return resp
     elif provider == 'OpenRouter':
-        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+        if 'proxies' in st.session_state:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1', http_client=_http_client)
+        else:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
         resp = client.chat.completions.create(model=llm, messages=messages, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, presence_penalty=st.session_state.endpoint_schema.presence_penalty, frequency_penalty=st.session_state.endpoint_schema.frequency_penalty )
         return resp.choices[0].message.content
     elif provider == 'Together':
         prompt = apply_prompt_template_v2(messages, system_prompt=st.session_state.sys_prompt)
-        resp = together.Completion.create(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
-        return resp.choices[0].text
+        # resp = together.Completion.create(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        # return resp.choices[0].text
+        return togethercompletion(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
     elif provider == 'Custom':
        pass
 
 def list_openai_models():
     if len(st.session_state.openaikey) <= 0:
         return []
-    client = OpenAI()
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+        client = OpenAI(http_client=_http_client)
+    else:
+        client = OpenAI()
     models = list(client.models.list())
     res = [model.id for model in models if 'gpt' in model.id.lower()]
     return res
@@ -276,7 +344,12 @@ def list_hfi_models():
 def list_openrouter_models():
     if len(st.session_state.openrouterkey) <= 0:
         return []
-    client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1', http_client=_http_client)
+    else:
+        client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
     models = list(client.models.list())
     res = [model.id for model in models]
     return res
@@ -286,6 +359,12 @@ def list_together_models():
         return []
     models = together.Models().list()
     models = [x['name'] for x in models]
+    return models
+
+def read_together_model_list(pathstr: Path = Path('./togethermodellist.txt')):
+    with open(pathstr, 'r') as f:
+        models = f.readlines()
+    models = [x.strip() for x in models]
     return models
 
 def clear_all():
@@ -381,9 +460,9 @@ def draw_sidebar():
                 together.api_key = st.session_state.togetherkey
                 st.sidebar.success('API key entered!', icon='✅')
         if 'together_models' not in st.session_state:
-            st.session_state.together_models = list_together_models()
+            st.session_state.together_models = read_together_model_list()
         elif len(st.session_state.together_models) <= 0:
-            st.session_state.together_models = list_together_models()
+            st.session_state.together_models = read_together_model_list()
         model = st.sidebar.selectbox('Model', st.session_state.together_models)
         llm = model
         set_default_prompt_template()
@@ -482,17 +561,47 @@ def gen_prompt():
 
 def generate():
     prompt = gen_prompt()
+    print("PROMPT: ", prompt)
     full_response = ""
-    if st.session_state.provider == 'Replicate':
+    provider = st.session_state.provider.provider
+    if 'proxies' in st.session_state:
+        proxies = st.session_state.proxies
+        _http_client = _httpx.Client(proxies=proxies, verify=False)
+    else:
+        _http_client = _httpx.Client()
+
+    if provider == 'Replicate':
         for resp in replicate.run(st.session_state.llm, {"prompt": prompt, "max_new_tokens": st.session_state.max_new_tokens, "temperature": st.session_state.temperature, "top_k": st.session_state.top_k, "top_p": st.session_state.top_p}):
             full_response += resp
             st.session_state.generation = full_response+"▌"
         return full_response
-    elif st.session_state.provider == 'OpenAI':
-        client = OpenAI()
+    elif provider == 'OpenAI':
+        if 'proxies' in st.session_state:
+            client = OpenAI(http_client=_http_client)
+        else:
+            client = OpenAI()
         prompt = [{"role": "user", "content": prompt}]
         resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
         return resp.choices[0].message.content
+    elif provider == 'Ollama':
+        prompt = [{"role": "user", "content": prompt}]
+        prompt = apply_prompt_template_v2(prompt, system_prompt=st.session_state.sys_prompt)
+        client = ollama.Ollama(model=st.session_state.llm, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        resp = client(prompt=prompt)
+        return resp
+    elif provider == 'OpenRouter':
+        prompt = [{"role": "user", "content": prompt}]
+        if 'proxies' in st.session_state:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1', http_client=_http_client)
+        else:
+            client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
+        resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
+        return resp.choices[0].message.content
+    elif provider == 'Together':
+        prompt = apply_prompt_template_v2(prompt, system_prompt=st.session_state.sys_prompt)
+        # resp = together.Completion.create(prompt=prompt, model=st.session_state.llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+        # return resp.choices[0].text
+        return togethercompletion(prompt=prompt, model=st.session_state.llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
     
 def prompting():
     placeholder1 = st.empty()
@@ -550,6 +659,11 @@ def build_prompt_template():
     }
     return st.session_state.prompt_template
 
+def gen_preview():
+    msgformat = f"{st.session_state.initial_prompt}\n{st.session_state.sys_prefix} [System Message] {st.session_state.sys_suffix}"\
+                f" {st.session_state.user_prefix} [User Message] {st.session_state.user_suffix} {st.session_state.assistant_prefix} [Assistant Message] {st.session_state.assistant_suffix}\n{st.session_state.final_prompt}"
+    return msgformat
+
 def promptformat():
     if 'sys_prefix' not in st.session_state:
         st.session_state.sys_prefix = ""
@@ -573,10 +687,16 @@ def promptformat():
         st.session_state.eos_token = ""
 
     st.markdown('#### Prompt Format')
-    msgformat = f"{st.session_state.initial_prompt}\n{st.session_state.sys_prefix} [System Message] {st.session_state.sys_suffix}"\
-    f" {st.session_state.user_prefix} [User Message] {st.session_state.user_suffix} {st.session_state.assistant_prefix} [Assistant Message] {st.session_state.assistant_suffix}\n{st.session_state.final_prompt}"
+    
+
+    st.session_state.preset_prompt_selection = 'default'
+    st.session_state.preset_prompt_selection = st.selectbox("Load from preset", promptmapper.keys())
+    if st.button("Apply Preset"):
+        st.session_state.override_prompt_template = False
+        set_default_prompt_template(st.session_state.preset_prompt_selection)
     preview = st.empty()
-    preview.text_area("Message Format Preview", value= f"{msgformat}", height=200)
+    string = gen_preview()
+    preview.text_area("Prompt Preview", value=string, height=200, key="prompt_preview")
     
     st.session_state.initial_prompt = st.text_area("Initial Prompt", value=st.session_state.initial_prompt, height=100)
     st.session_state.sys_prefix = st.text_input("System Message Prefix", value=st.session_state.sys_prefix)
@@ -586,6 +706,7 @@ def promptformat():
     st.session_state.assistant_prefix = st.text_input("Assistant Message Prefix", value=st.session_state.assistant_prefix)
     st.session_state.assistant_suffix = st.text_input("Assistant Message Suffix", value=st.session_state.assistant_suffix)
     st.session_state.final_prompt = st.text_area("Final Prompt", value=st.session_state.final_prompt, height=100)
+
 
     st.session_state.bos_token = st.text_input("Beginning of Sequence Token", value=st.session_state.bos_token)
     st.session_state.eos_token = st.text_input("End of Sequence Token", value=st.session_state.eos_token)
@@ -648,15 +769,58 @@ def read_schema():
     st.session_state.provider = Provider(provider="Custom", model=st.session_state.endpoint_model)
     print(st.session_state.custom_endpoint_schema)
 
+
+def proxy():
+    if 'HTTP_PROXY' not in os.environ:
+        os.environ['HTTP_PROXY'] = ""
+    if 'HTTPS_PROXY' not in os.environ:
+        os.environ['HTTPS_PROXY'] = ""
+    if 'NO_PROXY' not in os.environ:
+        os.environ['NO_PROXY'] = "localhost,*.aexp.com,192.168.99.1/24"
+
+    if 'username' not in st.session_state:
+        st.session_state.username = ""
+        st.session_state.password = ""
+
+    st.session_state.http_proxy = os.environ['HTTP_PROXY']
+    st.session_state.https_proxy = os.environ['HTTPS_PROXY']
+    st.session_state.no_proxy = os.environ['NO_PROXY']
+    st.session_state.http_proxy = st.text_input("HTTP Proxy", value=st.session_state.http_proxy)
+    st.session_state.https_proxy = st.text_input("HTTPS Proxy", value=st.session_state.https_proxy)
+    st.session_state.no_proxy = st.text_input("No Proxy", value=st.session_state.no_proxy)
+    st.session_state.username = st.text_input("Username", value=st.session_state.username)
+    st.session_state.password = st.text_input("Password", value=st.session_state.password, type="password")
+
+    if st.button("Apply", use_container_width=True):
+        os.environ['HTTP_PROXY'] = st.session_state.http_proxy
+        os.environ['http_proxy'] = st.session_state.http_proxy
+        os.environ['HTTPS_PROXY'] = st.session_state.https_proxy
+        os.environ['https_proxy'] = st.session_state.https_proxy
+        st.session_state.proxies = {'http://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.http_proxy.replace('http://',''), 'https://' : 'http://'+st.session_state.username+":"+st.session_state.password+ "@" + st.session_state.https_proxy.replace('http://','')}
+        os.environ['NO_PROXY'] = st.session_state.no_proxy
+        print("Proxy - ", os.environ['http_proxy'])
+    if st.button("Reset", use_container_width=True):
+        os.environ['HTTP_PROXY'] = st.session_state.http_proxy = ""
+        os.environ['http_proxy'] = st.session_state.http_proxy = ""
+        os.environ['HTTPS_PROXY'] = st.session_state.https_proxy = ""
+        os.environ['https_proxy'] = st.session_state.https_proxy = ""
+        os.environ['NO_PROXY'] = st.session_state.no_proxy = ""
+        st.session_state.username = ""
+        st.session_state.password = ""
+        del st.session_state.proxies
+        st.rerun()
+
+
 def settings_master():
     with st.sidebar:
-        settingpage = option_menu("Settings", ["General", "Prompt Format", "Custom Endpoint"],
+        settingpage = option_menu("Settings", ["General", "Prompt Format", "Custom Endpoint", "Proxy Settings"],
                                 icons=['gear', 'list-task', 'code'], 
             menu_icon="cast", default_index=0, orientation="vertical")
     setting_page_to_funcs = {
     "General": settings,
     "Prompt Format": promptformat,
-    "Custom Endpoint": endpoint
+    "Custom Endpoint": endpoint,
+    "Proxy Settings": proxy
     }
     setting_page_to_funcs[settingpage]()
 
