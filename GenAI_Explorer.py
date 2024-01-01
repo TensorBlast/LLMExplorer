@@ -127,13 +127,18 @@ if 'together' in st.secrets:
     os.environ['TOGETHER_API_KEY'] = st.secrets.together.API_KEY
     st.session_state.togetherkey = st.secrets.together.API_KEY
     together_key_set = True
+if 'mistral' in st.secrets:
+    os.environ['MISTRAL_API_KEY'] = st.secrets.mistral.API_KEY
+    st.session_state.mistralkey = st.secrets.mistral.API_KEY
+    mistral_key_set = True
 else:
     st.session_state.togetherkey = ""
 
 
 st.title('GenAI Explorer')
 
-model_choices = dict(replicate=['Llama-2-13b-chat', 'Llama-2-70b-chat', 'CodeLlama-13b-instruct','CodeLlama-34b-instruct'])
+model_choices = dict(replicate=['Llama-2-13b-chat', 'Llama-2-70b-chat', 'CodeLlama-13b-instruct','CodeLlama-34b-instruct'],
+                     mistral=['mistral-tiny','mistral-small','mistal-medium'])
 
 replicatemap = dict([('Llama-2-13b-chat', "meta/llama-2-13b-chat:f4e2de70d66816a838a89eeeb621910adffb0dd0baba3976c96980970978018d"), \
                      ('Llama-2-70b-chat', 'meta/llama-2-70b-chat:02e509c789964a7ea8736978a43525956ef40397be9033abf9fd2badfe68c9e3'), \
@@ -398,7 +403,7 @@ def generate_buttons():
         except IndexError:
             st.sidebar.button(f"New Conversation...", key=key, on_click=select_convo, args=(key,), use_container_width=True)
 def draw_sidebar():
-    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'OpenRouter', 'Together', 'Custom'])
+    provider = st.sidebar.selectbox('Provider', ['Replicate', 'OpenAI', 'Ollama', 'OpenRouter', 'Together', 'Mistral', 'Custom'])
     if provider == 'Replicate':
         if not replicate_key_set:
             if 'REPLICATE_API_TOKEN' in os.environ:
@@ -466,6 +471,17 @@ def draw_sidebar():
         model = st.sidebar.selectbox('Model', st.session_state.together_models)
         llm = model
         set_default_prompt_template()
+        st.markdown(f'##### Chosen Model: 🦙💬 {model}')
+    elif provider == 'Mistral':
+        if not replicate_key_set:
+            if 'MISTRAL_API_KEY' in os.environ:
+                st.session_state.mistralkey = os.environ['MISTRAL_API_KEY']
+            st.session_state.mistralkey = st.sidebar.text_input("Mistral API Key", value=st.session_state.mistralkey, type="password")
+            if len(st.session_state.mistralkey) > 0:
+                os.environ['MISTRAL_API_KEY'] = st.session_state.mistralkey
+                st.sidebar.success('API key entered!', icon='✅')
+        model = st.sidebar.selectbox('Model', model_choices['mistral'])
+        llm = model
         st.markdown(f'##### Chosen Model: 🦙💬 {model}')
     elif provider == 'Custom':
         st.sidebar.markdown(f'###### *Customize endpoing settings in settings menu*')
