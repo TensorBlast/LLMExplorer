@@ -11,6 +11,8 @@ import requests
 import together
 import json
 from pydantic import BaseModel, Field, field_validator
+from mistralai.client import MistralClient
+from mistralai.models.chat_completion import ChatMessage
 
 from pathlib import Path
 import httpx as _httpx
@@ -127,18 +129,20 @@ if 'together' in st.secrets:
     os.environ['TOGETHER_API_KEY'] = st.secrets.together.API_KEY
     st.session_state.togetherkey = st.secrets.together.API_KEY
     together_key_set = True
+else:
+    st.session_state.togetherkey = ""
 if 'mistral' in st.secrets:
     os.environ['MISTRAL_API_KEY'] = st.secrets.mistral.API_KEY
     st.session_state.mistralkey = st.secrets.mistral.API_KEY
     mistral_key_set = True
 else:
-    st.session_state.togetherkey = ""
+    st.session_state.mistralkey = ""
 
 
 st.title('GenAI Explorer')
 
 model_choices = dict(replicate=['Llama-2-13b-chat', 'Llama-2-70b-chat', 'CodeLlama-13b-instruct','CodeLlama-34b-instruct'],
-                     mistral=['mistral-tiny','mistral-small','mistal-medium'])
+                     mistral=['mistral-tiny','mistral-small','mistral-medium'])
 
 replicatemap = dict([('Llama-2-13b-chat', "meta/llama-2-13b-chat:f4e2de70d66816a838a89eeeb621910adffb0dd0baba3976c96980970978018d"), \
                      ('Llama-2-70b-chat', 'meta/llama-2-70b-chat:02e509c789964a7ea8736978a43525956ef40397be9033abf9fd2badfe68c9e3'), \
@@ -279,6 +283,7 @@ def listtogetherinstances():
     print(response.text)
 
 def run(conversation_id):
+    mistralclient = MistralClient(api_key=os.environ['MISTRAL_API_KEY'])
     messages = list(st.session_state.conversations[conversation_id])
     provider = st.session_state.provider.provider
     llm = st.session_state.provider.model
@@ -316,6 +321,10 @@ def run(conversation_id):
         # resp = together.Completion.create(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
         # return resp.choices[0].text
         return togethercompletion(prompt=prompt, model=llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
+    elif provider == 'Mistral':
+        messages = [ChatMessage(content=message['content'], role=message['role']) for message in messages]
+        for chunk in mistralclient.chat_stream(model=llm, messages=messages, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, max_tokens=st.session_state.endpoint_schema.max_tokens):
+            yield '' if not chunk.choices[0].delta.content else chunk.choices[0].delta.content
     elif provider == 'Custom':
        pass
 
@@ -530,6 +539,7 @@ def chat():
             message_placeholder = st.empty()
             full_response = ""
             for output in run(current_convo):
+                print(output)
                 full_response += output
                 message_placeholder.markdown(full_response+"▌")
             message_placeholder.markdown(full_response)
@@ -613,6 +623,11 @@ def generate():
             client = OpenAI(api_key=os.environ['OPENROUTER_API_KEY'], base_url='https://openrouter.ai/api/v1')
         resp = client.chat.completions.create(model=st.session_state.llm, messages=prompt, max_tokens=st.session_state.max_new_tokens, temperature=st.session_state.temperature, top_p=st.session_state.top_p)
         return resp.choices[0].message.content
+    elif provider == 'Mistral':
+        prompt = [ChatMessage(content=prompt, role='user')]
+        mistralclient = MistralClient(api_key=os.environ['MISTRAL_API_KEY'])
+        chatresponse = mistralclient.chat(model=st.session_state.llm, messages=prompt, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, max_tokens=st.session_state.endpoint_schema.max_tokens)
+        return chatresponse.choices[0].message
     elif provider == 'Together':
         prompt = apply_prompt_template_v2(prompt, system_prompt=st.session_state.sys_prompt)
         # resp = together.Completion.create(prompt=prompt, model=st.session_state.llm, max_tokens=st.session_state.endpoint_schema.max_tokens, temperature=st.session_state.endpoint_schema.temperature, top_p=st.session_state.endpoint_schema.top_p, top_k=st.session_state.endpoint_schema.top_k)
